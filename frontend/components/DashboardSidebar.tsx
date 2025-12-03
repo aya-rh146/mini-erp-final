@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Users, FileText, LogOut, Settings, Plus } from "lucide-react";
+import { LayoutDashboard, Users, FileText, LogOut, Settings, Plus, BarChart3, UserCheck, TrendingUp } from "lucide-react";
 
 export default function DashboardSidebar() {
   const pathname = usePathname();
@@ -24,10 +24,34 @@ export default function DashboardSidebar() {
       roles: ["admin"],
     },
     {
+      href: "/dashboard/leads",
+      label: "Leads",
+      icon: TrendingUp,
+      roles: ["admin", "supervisor", "operator"],
+    },
+    {
       href: "/dashboard/claims",
       label: "Réclamations",
       icon: FileText,
       roles: ["admin", "supervisor", "operator"],
+    },
+    {
+      href: "/dashboard/supervisor",
+      label: "Dashboard Superviseur",
+      icon: UserCheck,
+      roles: ["admin", "supervisor"],
+    },
+    {
+      href: "/dashboard/operator",
+      label: "Dashboard Opérateur",
+      icon: UserCheck,
+      roles: ["admin", "supervisor", "operator"],
+    },
+    {
+      href: "/dashboard/analytics",
+      label: "Analytics",
+      icon: BarChart3,
+      roles: ["admin"],
     },
     {
       href: "/claims",

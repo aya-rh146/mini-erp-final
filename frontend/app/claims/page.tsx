@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
@@ -46,6 +47,7 @@ const statusConfig = {
 };
 
 export default function ClaimsPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,8 +126,12 @@ export default function ClaimsPage() {
               });
 
               return (
-                <Link key={claim.id} href={`/claims/${claim.id}`}>
-                  <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                <div
+                  key={claim.id}
+                  onClick={() => router.push(`/claims/${claim.id}`)}
+                  className="cursor-pointer"
+                >
+                  <Card className="hover:shadow-md transition-shadow">
                     <CardHeader>
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
@@ -155,6 +161,7 @@ export default function ClaimsPage() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-blue-600 hover:text-blue-800"
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 <ExternalLink size={14} />
                               </a>
@@ -171,7 +178,7 @@ export default function ClaimsPage() {
                     </div>
                   </CardContent>
                 </Card>
-                </Link>
+                </div>
               );
             })}
           </div>

@@ -36,7 +36,7 @@ export async function handleFileUpload(
 
   // Types de fichiers autorisés
   const allowedMimes = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
-  const maxFileSize = 20 * 1024 * 1024; // 20 Mo
+  const maxFileSize = 300 * 1024 * 1024; // 100 Mo (augmenté de 20 Mo)
 
   // Limite du nombre de fichiers
   const maxFiles = 20;
@@ -54,7 +54,7 @@ export async function handleFileUpload(
 
     // Vérifier la taille
     if (file.size > maxFileSize) {
-      throw new Error(`Fichier trop volumineux: ${file.name}. Maximum: 20 Mo`);
+      throw new Error(`Fichier trop volumineux: ${file.name}. Maximum: 300 Mo`);
     }
 
     // Générer un nom de fichier unique

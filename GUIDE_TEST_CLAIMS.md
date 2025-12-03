@@ -186,3 +186,5 @@ curl -X PATCH http://localhost:3002/api/claims/1/assign \
 - Les admins/supervisors/operators peuvent modifier le statut et ajouter des réponses
 - Seuls les supervisors peuvent assigner des réclamations
 
+
+

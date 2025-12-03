@@ -46,7 +46,7 @@ export default function CreateClaimPage() {
 
     const validFiles: File[] = [];
     const allowedTypes = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
-    const maxSize = 20 * 1024 * 1024; // 20 Mo
+    const maxSize = 300 * 1024 * 1024; // 100 Mo (augmenté de 20 Mo)
 
     for (const file of selectedFiles) {
       if (!allowedTypes.includes(file.type)) {
@@ -54,7 +54,7 @@ export default function CreateClaimPage() {
         continue;
       }
       if (file.size > maxSize) {
-        setError(`Fichier trop volumineux: ${file.name}. Maximum: 20 Mo`);
+        setError(`Fichier trop volumineux: ${file.name}. Maximum: 300 Mo`);
         continue;
       }
       validFiles.push(file);

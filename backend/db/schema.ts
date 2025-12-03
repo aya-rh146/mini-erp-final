@@ -88,3 +88,50 @@ import {
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
   });
+
+  // Fichiers attachés aux réclamations
+  export const claimFiles = pgTable("claim_files", {
+    id: serial("id").primaryKey(),
+    claimId: integer("claim_id")
+      .references(() => claims.id, { onDelete: "cascade" })
+      .notNull(),
+    fileUrl: varchar("file_url", { length: 512 }).notNull(),
+    fileName: varchar("file_name", { length: 255 }).notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  });
+
+  // Commentaires sur les réclamations avec visibilité par rôle
+  export const claimComments = pgTable("claim_comments", {
+    id: serial("id").primaryKey(),
+    claimId: integer("claim_id")
+      .references(() => claims.id, { onDelete: "cascade" })
+      .notNull(),
+    authorId: integer("author_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    role: userRoleEnum("role").notNull(),
+    content: text("content").notNull(),
+    visibleToClient: boolean("visible_to_client").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  });
+
+  // TABLE pivot many-to-many entre clients et produits/services
+  export const clientProducts = pgTable("client_products", {
+    id: serial("id").primaryKey(),
+    clientId: integer("client_id")
+      .references(() => clients.id, { onDelete: "cascade" })
+      .notNull(),
+    productId: integer("product_id")
+      .references(() => products.id, { onDelete: "cascade" })
+      .notNull(),
+  });
+
+  // TABLE des paiements pour calculer le revenu par client / par mois
+  export const payments = pgTable("payments", {
+    id: serial("id").primaryKey(),
+    clientId: integer("client_id")
+      .references(() => clients.id, { onDelete: "cascade" })
+      .notNull(),
+    amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+    paidAt: timestamp("paid_at").defaultNow(),
+  });

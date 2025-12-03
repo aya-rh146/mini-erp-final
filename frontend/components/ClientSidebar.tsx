@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, FileText, Plus, LogOut } from "lucide-react";
+import { LayoutDashboard, FileText, LogOut } from "lucide-react";
 
 export default function ClientSidebar() {
   const pathname = usePathname();
@@ -20,11 +20,6 @@ export default function ClientSidebar() {
       href: "/claims",
       label: "Mes réclamations",
       icon: FileText,
-    },
-    {
-      href: "/claims/create",
-      label: "Créer une réclamation",
-      icon: Plus,
     },
   ];
 

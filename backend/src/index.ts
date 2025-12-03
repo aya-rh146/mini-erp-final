@@ -7,10 +7,11 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { users, claims } from "../db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { users, claims, leads, clients, products, claimComments } from "../db/schema";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import { handleFileUpload } from "./upload";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { broadcastClaimEvent } from "./realtime";
 
 const app = new Hono();
 
@@ -652,6 +653,9 @@ app.post("/api/claims", authenticate, async (c: any) => {
         updatedAt: claims.updatedAt,
       });
 
+    // Émettre événement Realtime
+    await broadcastClaimEvent("claim_created", { claimId: newClaim[0].id });
+
     return c.json(newClaim[0], 201);
   } catch (error: any) {
     console.error("Error creating claim:", error);
@@ -814,6 +818,12 @@ app.patch("/api/claims/:id/status", authenticate, requireOperator, async (c: any
         updatedAt: claims.updatedAt,
       });
 
+    // Émettre événement Realtime
+    await broadcastClaimEvent("claim_status_changed", {
+      claimId: updatedClaim[0].id,
+      status: updatedClaim[0].status || undefined,
+    });
+
     return c.json(updatedClaim[0]);
   } catch (error: any) {
     console.error("Error updating claim status:", error);
@@ -868,6 +878,9 @@ app.patch("/api/claims/:id/reply", authenticate, requireOperator, async (c: any)
         createdAt: claims.createdAt,
         updatedAt: claims.updatedAt,
       });
+
+    // Émettre événement Realtime
+    await broadcastClaimEvent("claim_reply_added", { claimId: updatedClaim[0].id });
 
     return c.json(updatedClaim[0]);
   } catch (error: any) {
@@ -951,10 +964,953 @@ app.patch("/api/claims/:id/assign", authenticate, requireSupervisor, async (c: a
         updatedAt: claims.updatedAt,
       });
 
+    // Émettre événement Realtime
+    await broadcastClaimEvent("claim_assigned", {
+      claimId: updatedClaim[0].id,
+      assignedTo: updatedClaim[0].assignedTo,
+    });
+
     return c.json(updatedClaim[0]);
   } catch (error: any) {
     console.error("Error assigning claim:", error);
     return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+// ==================== ROUTES COMMENTS (CLAIMS) ====================
+
+/**
+ * GET /api/claims/:id/comments
+ * Liste les commentaires d'une réclamation
+ */
+app.get("/api/claims/:id/comments", authenticate, async (c: any) => {
+  try {
+    const user = c.get("user");
+    const id = parseInt(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    // Vérifier que la réclamation existe
+    const claim = await db.select().from(claims).where(eq(claims.id, id)).limit(1);
+    if (claim.length === 0) {
+      return c.json({ error: "Réclamation non trouvée" }, 404);
+    }
+
+    // Vérifier les permissions
+    const allowedRoles: UserRole[] = ["admin", "supervisor", "operator"];
+    if (!allowedRoles.includes(user.role) && claim[0].clientId !== user.id) {
+      return c.json({ error: "Accès refusé" }, 403);
+    }
+
+    // Récupérer les commentaires
+    const allComments = await db
+      .select({
+        id: claimComments.id,
+        claimId: claimComments.claimId,
+        authorId: claimComments.authorId,
+        role: claimComments.role,
+        content: claimComments.content,
+        visibleToClient: claimComments.visibleToClient,
+        createdAt: claimComments.createdAt,
+      })
+      .from(claimComments)
+      .where(eq(claimComments.claimId, id))
+      .orderBy(desc(claimComments.createdAt));
+
+    // Filtrer selon le rôle : client ne voit que les commentaires visibles
+    const filtered =
+      user.role === "client"
+        ? allComments.filter((c) => c.visibleToClient)
+        : allComments;
+
+    return c.json(filtered);
+  } catch (error: any) {
+    console.error("Error fetching comments:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * POST /api/claims/:id/comments
+ * Ajoute un commentaire à une réclamation
+ */
+app.post("/api/claims/:id/comments", authenticate, async (c: any) => {
+  try {
+    const user = c.get("user");
+    const id = parseInt(c.req.param("id"));
+    const body = await c.req.json();
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    const content = (body.content as string | undefined)?.trim();
+    if (!content) {
+      return c.json({ error: "Contenu obligatoire" }, 400);
+    }
+
+    // Vérifier que la réclamation existe
+    const claim = await db.select().from(claims).where(eq(claims.id, id)).limit(1);
+    if (claim.length === 0) {
+      return c.json({ error: "Réclamation non trouvée" }, 404);
+    }
+
+    // Vérifier les permissions
+    const allowedRoles: UserRole[] = ["admin", "supervisor", "operator"];
+    if (user.role === "client" && claim[0].clientId !== user.id) {
+      return c.json({ error: "Accès refusé" }, 403);
+    }
+    if (user.role === "operator" && claim[0].assignedTo !== user.id) {
+      return c.json({ error: "Accès refusé" }, 403);
+    }
+
+    const visibleToClient = user.role === "client" ? false : Boolean(body.visibleToClient);
+
+    const newComment = await db
+      .insert(claimComments)
+      .values({
+        claimId: id,
+        authorId: user.id,
+        role: user.role,
+        content,
+        visibleToClient,
+      })
+      .returning({
+        id: claimComments.id,
+        claimId: claimComments.claimId,
+        authorId: claimComments.authorId,
+        role: claimComments.role,
+        content: claimComments.content,
+        visibleToClient: claimComments.visibleToClient,
+        createdAt: claimComments.createdAt,
+      });
+
+    // Émettre événement Realtime
+    await broadcastClaimEvent("claim_comment_added", {
+      claimId: id,
+      commentId: newComment[0].id,
+    });
+
+    return c.json(newComment[0], 201);
+  } catch (error: any) {
+    console.error("Error creating comment:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+// ==================== ROUTES LEADS ====================
+
+/**
+ * GET /api/leads
+ * Liste les leads selon le rôle
+ */
+app.get("/api/leads", authenticate, async (c: any) => {
+  try {
+    const user = c.get("user");
+    
+    let result: any[] = [];
+    if (user.role === "admin") {
+      result = await db.select().from(leads).orderBy(desc(leads.createdAt));
+    } else if (user.role === "supervisor") {
+      // Récupérer les opérateurs du superviseur
+      const operators = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.supervisorId, user.id), eq(users.role, "operator")));
+      const operatorIds = operators.map((o) => o.id);
+      if (operatorIds.length > 0) {
+        result = await db
+          .select()
+          .from(leads)
+          .where(inArray(leads.assignedTo, operatorIds))
+          .orderBy(desc(leads.createdAt));
+      } else {
+        result = [];
+      }
+    } else if (user.role === "operator") {
+      result = await db
+        .select()
+        .from(leads)
+        .where(eq(leads.assignedTo, user.id))
+        .orderBy(desc(leads.createdAt));
+    } else {
+      return c.json({ error: "Accès refusé" }, 403);
+    }
+
+    return c.json(result);
+  } catch (error: any) {
+    console.error("Error fetching leads:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * POST /api/leads
+ * Crée un nouveau lead (admin/supervisor/operator)
+ */
+app.post("/api/leads", authenticate, requireOperator, async (c: any) => {
+  try {
+    const body = await c.req.json();
+
+    if (!body.name) {
+      return c.json({ error: "Le nom est obligatoire" }, 400);
+    }
+
+    const newLead = await db
+      .insert(leads)
+      .values({
+        name: body.name.trim(),
+        email: body.email?.trim() || null,
+        phone: body.phone?.trim() || null,
+        status: body.status || "new",
+        assignedTo: body.assignedTo ? parseInt(body.assignedTo) : null,
+        notes: body.notes?.trim() || null,
+      })
+      .returning();
+
+    return c.json(newLead[0], 201);
+  } catch (error: any) {
+    console.error("Error creating lead:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * GET /api/leads/:id
+ * Récupère un lead par ID
+ */
+app.get("/api/leads/:id", authenticate, requireOperator, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    const user = c.get("user");
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    const result = await db
+      .select()
+      .from(leads)
+      .where(eq(leads.id, id))
+      .limit(1);
+
+    if (result.length === 0) {
+      return c.json({ error: "Lead non trouvé" }, 404);
+    }
+
+    const lead = result[0];
+
+    // Vérifier les permissions
+    if (user.role === "operator" && lead.assignedTo !== user.id) {
+      return c.json({ error: "Accès refusé" }, 403);
+    }
+
+    return c.json(lead);
+  } catch (error: any) {
+    console.error("Error fetching lead:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * PATCH /api/leads/:id
+ * Met à jour un lead (statut, assignation, notes)
+ */
+app.patch("/api/leads/:id", authenticate, requireOperator, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    const body = await c.req.json();
+    const user = c.get("user");
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    // Vérifier que le lead existe
+    const existingLead = await db
+      .select()
+      .from(leads)
+      .where(eq(leads.id, id))
+      .limit(1);
+
+    if (existingLead.length === 0) {
+      return c.json({ error: "Lead non trouvé" }, 404);
+    }
+
+    // Vérifier les permissions
+    if (user.role === "operator" && existingLead[0].assignedTo !== user.id) {
+      return c.json({ error: "Accès refusé" }, 403);
+    }
+
+    const updateData: any = {};
+    if (body.status !== undefined) updateData.status = body.status;
+    if (body.assignedTo !== undefined) {
+      updateData.assignedTo = body.assignedTo ? parseInt(body.assignedTo) : null;
+    }
+    if (body.notes !== undefined) updateData.notes = body.notes;
+    if (body.name !== undefined) updateData.name = body.name.trim();
+    if (body.email !== undefined) updateData.email = body.email?.trim() || null;
+    if (body.phone !== undefined) updateData.phone = body.phone?.trim() || null;
+
+    const updated = await db
+      .update(leads)
+      .set(updateData)
+      .where(eq(leads.id, id))
+      .returning();
+
+    return c.json(updated[0]);
+  } catch (error: any) {
+    console.error("Error updating lead:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * DELETE /api/leads/:id
+ * Supprime un lead (admin/supervisor)
+ */
+app.delete("/api/leads/:id", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    await db.delete(leads).where(eq(leads.id, id));
+
+    return c.json({ success: true, message: "Lead supprimé avec succès" });
+  } catch (error: any) {
+    console.error("Error deleting lead:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * POST /api/leads/:id/convert
+ * Convertit un lead en client (admin/supervisor)
+ */
+app.post("/api/leads/:id/convert", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    const lead = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+    if (lead.length === 0) {
+      return c.json({ error: "Lead non trouvé" }, 404);
+    }
+
+    const leadData = lead[0];
+    if (!leadData.email) {
+      return c.json({ error: "Le lead doit avoir un email pour être converti" }, 400);
+    }
+
+    // Vérifier si l'utilisateur existe déjà
+    const existingUser = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, leadData.email))
+      .limit(1);
+
+    let userId: number;
+    if (existingUser.length > 0) {
+      userId = existingUser[0].id;
+      // Vérifier si c'est déjà un client
+      const existingClient = await db
+        .select()
+        .from(clients)
+        .where(eq(clients.userId, userId))
+        .limit(1);
+      if (existingClient.length > 0) {
+        return c.json({ error: "Un client avec cet email existe déjà" }, 409);
+      }
+    } else {
+      // Créer un nouvel utilisateur client
+      const defaultPassword = "password123";
+      const hashedPassword = bcrypt.hashSync(defaultPassword, 10);
+      const newUser = await db
+        .insert(users)
+        .values({
+          email: leadData.email,
+          password: hashedPassword,
+          fullName: leadData.name,
+          role: "client",
+        })
+        .returning();
+      userId = newUser[0].id;
+    }
+
+    // Créer le client
+    const newClient = await db
+      .insert(clients)
+      .values({
+        userId: userId,
+        company: leadData.name,
+      })
+      .returning();
+
+    // Supprimer le lead
+    await db.delete(leads).where(eq(leads.id, id));
+
+    return c.json({
+      success: true,
+      client: newClient[0],
+      message: "Lead converti en client avec succès",
+    });
+  } catch (error: any) {
+    console.error("Error converting lead:", error);
+    if (error.code === "23505") {
+      return c.json({ error: "Un client avec cet email existe déjà" }, 409);
+    }
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+// ==================== ROUTES CLIENTS ====================
+
+/**
+ * GET /api/clients
+ * Liste tous les clients (admin/supervisor)
+ */
+app.get("/api/clients", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const result = await db
+      .select({
+        id: clients.id,
+        userId: clients.userId,
+        company: clients.company,
+        address: clients.address,
+        email: users.email,
+        fullName: users.fullName,
+      })
+      .from(clients)
+      .leftJoin(users, eq(clients.userId, users.id))
+      .orderBy(clients.id);
+
+    return c.json(result);
+  } catch (error: any) {
+    console.error("Error fetching clients:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * GET /api/clients/:id
+ * Récupère un client par ID
+ */
+app.get("/api/clients/:id", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    const result = await db
+      .select({
+        id: clients.id,
+        userId: clients.userId,
+        company: clients.company,
+        address: clients.address,
+        email: users.email,
+        fullName: users.fullName,
+      })
+      .from(clients)
+      .leftJoin(users, eq(clients.userId, users.id))
+      .where(eq(clients.id, id))
+      .limit(1);
+
+    if (result.length === 0) {
+      return c.json({ error: "Client non trouvé" }, 404);
+    }
+
+    return c.json(result[0]);
+  } catch (error: any) {
+    console.error("Error fetching client:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * PUT /api/clients/:id
+ * Met à jour un client (admin)
+ */
+app.put("/api/clients/:id", authenticate, requireAdmin, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    const body = await c.req.json();
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    const updateData: any = {};
+    if (body.company !== undefined) updateData.company = body.company?.trim() || null;
+    if (body.address !== undefined) updateData.address = body.address?.trim() || null;
+
+    const updated = await db
+      .update(clients)
+      .set(updateData)
+      .where(eq(clients.id, id))
+      .returning();
+
+    if (updated.length === 0) {
+      return c.json({ error: "Client non trouvé" }, 404);
+    }
+
+    return c.json(updated[0]);
+  } catch (error: any) {
+    console.error("Error updating client:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * GET /api/clients/:id/income
+ * Calcule le revenu total d'un client
+ */
+app.get("/api/clients/:id/income", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    const { sql } = await import("drizzle-orm");
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    // Vérifier que le client existe
+    const client = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+    if (client.length === 0) {
+      return c.json({ error: "Client non trouvé" }, 404);
+    }
+
+    // Calculer le revenu (si table payments existe)
+    let totalIncome = "0.00";
+    try {
+      const result = await db.execute(
+        sql`SELECT COALESCE(SUM(amount), 0)::text as total FROM payments WHERE client_id = ${id}`
+      );
+      totalIncome = result.rows[0]?.total || "0.00";
+    } catch {
+      // Table payments n'existe pas encore
+    }
+
+    return c.json({ clientId: id, totalIncome });
+  } catch (error: any) {
+    console.error("Error calculating income:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+// ==================== ROUTES PRODUITS ====================
+
+/**
+ * GET /api/products
+ * Liste tous les produits
+ */
+app.get("/api/products", authenticate, async (c: any) => {
+  try {
+    const result = await db.select().from(products).orderBy(products.id);
+    return c.json(result);
+  } catch (error: any) {
+    console.error("Error fetching products:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * GET /api/products/:id
+ * Récupère un produit par ID
+ */
+app.get("/api/products/:id", authenticate, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    const result = await db
+      .select()
+      .from(products)
+      .where(eq(products.id, id))
+      .limit(1);
+
+    if (result.length === 0) {
+      return c.json({ error: "Produit non trouvé" }, 404);
+    }
+
+    return c.json(result[0]);
+  } catch (error: any) {
+    console.error("Error fetching product:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * POST /api/products
+ * Crée un nouveau produit (admin)
+ */
+app.post("/api/products", authenticate, requireAdmin, async (c: any) => {
+  try {
+    const body = await c.req.json();
+
+    if (!body.name) {
+      return c.json({ error: "Le nom est obligatoire" }, 400);
+    }
+
+    const newProduct = await db
+      .insert(products)
+      .values({
+        name: body.name.trim(),
+        type: body.type?.trim() || null,
+        price: body.price ? body.price.toString() : null,
+      })
+      .returning();
+
+    return c.json(newProduct[0], 201);
+  } catch (error: any) {
+    console.error("Error creating product:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * PUT /api/products/:id
+ * Met à jour un produit (admin)
+ */
+app.put("/api/products/:id", authenticate, requireAdmin, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    const body = await c.req.json();
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    const updateData: any = {};
+    if (body.name !== undefined) updateData.name = body.name.trim();
+    if (body.type !== undefined) updateData.type = body.type?.trim() || null;
+    if (body.price !== undefined) updateData.price = body.price ? body.price.toString() : null;
+
+    const updated = await db
+      .update(products)
+      .set(updateData)
+      .where(eq(products.id, id))
+      .returning();
+
+    if (updated.length === 0) {
+      return c.json({ error: "Produit non trouvé" }, 404);
+    }
+
+    return c.json(updated[0]);
+  } catch (error: any) {
+    console.error("Error updating product:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * DELETE /api/products/:id
+ * Supprime un produit (admin)
+ */
+app.delete("/api/products/:id", authenticate, requireAdmin, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    await db.delete(products).where(eq(products.id, id));
+
+    return c.json({ success: true, message: "Produit supprimé avec succès" });
+  } catch (error: any) {
+    console.error("Error deleting product:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * GET /api/clients/:id/products
+ * Liste les produits assignés à un client
+ */
+app.get("/api/clients/:id/products", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const clientId = parseInt(c.req.param("id"));
+    const { sql } = await import("drizzle-orm");
+
+    if (isNaN(clientId)) {
+      return c.json({ error: "ID client invalide" }, 400);
+    }
+
+    try {
+      const result = await db.execute(
+        sql`SELECT p.* FROM products p
+            INNER JOIN client_products cp ON p.id = cp.product_id
+            WHERE cp.client_id = ${clientId}`
+      );
+      return c.json(result.rows);
+    } catch {
+      return c.json({ error: "Table client_products n'existe pas. Exécutez la migration." }, 500);
+    }
+  } catch (error: any) {
+    console.error("Error fetching client products:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * POST /api/clients/:id/products
+ * Assigne un produit à un client (many-to-many)
+ */
+app.post("/api/clients/:id/products", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const clientId = parseInt(c.req.param("id"));
+    const body = await c.req.json();
+    const { sql } = await import("drizzle-orm");
+
+    if (isNaN(clientId) || !body.productId) {
+      return c.json({ error: "ID client et productId obligatoires" }, 400);
+    }
+
+    // Vérifier que client et product existent
+    const client = await db.select().from(clients).where(eq(clients.id, clientId)).limit(1);
+    const product = await db.select().from(products).where(eq(products.id, body.productId)).limit(1);
+
+    if (client.length === 0 || product.length === 0) {
+      return c.json({ error: "Client ou produit non trouvé" }, 404);
+    }
+
+    // Insérer dans client_products (si table existe)
+    try {
+      await db.execute(
+        sql`INSERT INTO client_products (client_id, product_id) VALUES (${clientId}, ${body.productId}) ON CONFLICT DO NOTHING`
+      );
+      return c.json({ success: true, message: "Produit assigné au client" });
+    } catch {
+      return c.json({ error: "Table client_products n'existe pas. Exécutez la migration." }, 500);
+    }
+  } catch (error: any) {
+    console.error("Error assigning product:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * DELETE /api/clients/:id/products/:productId
+ * Retire un produit d'un client
+ */
+app.delete("/api/clients/:id/products/:productId", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const clientId = parseInt(c.req.param("id"));
+    const productId = parseInt(c.req.param("productId"));
+    const { sql } = await import("drizzle-orm");
+
+    if (isNaN(clientId) || isNaN(productId)) {
+      return c.json({ error: "IDs invalides" }, 400);
+    }
+
+    try {
+      await db.execute(
+        sql`DELETE FROM client_products WHERE client_id = ${clientId} AND product_id = ${productId}`
+      );
+      return c.json({ success: true, message: "Produit retiré du client" });
+    } catch {
+      return c.json({ error: "Table client_products n'existe pas. Exécutez la migration." }, 500);
+    }
+  } catch (error: any) {
+    console.error("Error removing product:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+// ==================== ROUTES SUPERVISOR ====================
+
+/**
+ * GET /api/supervisor/overview
+ * Vue d'ensemble pour le superviseur : ses opérateurs + leurs leads/claims
+ */
+app.get("/api/supervisor/overview", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const user = c.get("user");
+
+    // Récupérer les opérateurs du superviseur
+    const operators = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        fullName: users.fullName,
+        role: users.role,
+      })
+      .from(users)
+      .where(and(eq(users.supervisorId, user.id), eq(users.role, "operator")));
+
+    const operatorIds = operators.map((o) => o.id);
+
+    let operatorLeads: any[] = [];
+    let operatorClaims: any[] = [];
+
+    if (operatorIds.length > 0) {
+      // Leads des opérateurs
+      operatorLeads = await db
+        .select()
+        .from(leads)
+        .where(inArray(leads.assignedTo, operatorIds))
+        .orderBy(desc(leads.createdAt));
+
+      // Claims des opérateurs
+      operatorClaims = await db
+        .select()
+        .from(claims)
+        .where(inArray(claims.assignedTo, operatorIds))
+        .orderBy(desc(claims.createdAt));
+    }
+
+    return c.json({
+      supervisorId: user.id,
+      operators: operators || [],
+      leads: operatorLeads || [],
+      claims: operatorClaims || [],
+    });
+  } catch (error: any) {
+    console.error("Error fetching supervisor overview:", error);
+    // En cas d'erreur, retourner un objet vide plutôt qu'une erreur 500
+    return c.json({
+      supervisorId: user.id,
+      operators: [],
+      leads: [],
+      claims: [],
+    });
+  }
+});
+
+// ==================== ROUTES ANALYTICS ====================
+
+/**
+ * GET /api/analytics/leads-status
+ * Statistiques des leads par statut
+ */
+app.get("/api/analytics/leads-status", authenticate, requireAdmin, async (c: any) => {
+  try {
+    const { sql } = await import("drizzle-orm");
+    const result = await db.execute(
+      sql`SELECT status, COUNT(*)::int as count FROM leads GROUP BY status ORDER BY status`
+    );
+    return c.json(result.rows || []);
+  } catch (error: any) {
+    console.error("Error fetching leads status:", error);
+    // Si la table n'existe pas, retourner un tableau vide
+    if (error.message?.includes("does not exist") || error.code === "42P01") {
+      return c.json([]);
+    }
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * GET /api/analytics/revenue-monthly
+ * Revenu mensuel (depuis payments)
+ */
+app.get("/api/analytics/revenue-monthly", authenticate, requireAdmin, async (c: any) => {
+  try {
+    const { sql } = await import("drizzle-orm");
+    const result = await db.execute(
+      sql`SELECT to_char(date_trunc('month', paid_at), 'YYYY-MM') as month,
+                 COALESCE(SUM(amount), 0)::text as total
+           FROM payments
+           GROUP BY 1
+           ORDER BY 1
+           LIMIT 12`
+    );
+    return c.json(result.rows || []);
+  } catch (error: any) {
+    console.error("Error fetching revenue monthly:", error);
+    // Si la table n'existe pas, retourner des données vides
+    if (error.message?.includes("does not exist") || error.code === "42P01") {
+      return c.json([]);
+    }
+    return c.json([]);
+  }
+});
+
+/**
+ * GET /api/analytics/claims-status
+ * Statistiques des claims par statut
+ */
+app.get("/api/analytics/claims-status", authenticate, requireAdmin, async (c: any) => {
+  try {
+    const { sql } = await import("drizzle-orm");
+    const result = await db.execute(
+      sql`SELECT status, COUNT(*)::int as count FROM claims GROUP BY status ORDER BY status`
+    );
+    return c.json(result.rows || []);
+  } catch (error: any) {
+    console.error("Error fetching claims status:", error);
+    // Si la table n'existe pas, retourner un tableau vide
+    if (error.message?.includes("does not exist") || error.code === "42P01") {
+      return c.json([]);
+    }
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * GET /api/analytics/claims-over-time
+ * Évolution des claims dans le temps
+ */
+app.get("/api/analytics/claims-over-time", authenticate, requireAdmin, async (c: any) => {
+  try {
+    const { sql } = await import("drizzle-orm");
+    const result = await db.execute(
+      sql`SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') as day,
+                 COUNT(*)::int as count
+           FROM claims
+           GROUP BY 1
+           ORDER BY 1
+           LIMIT 30`
+    );
+    return c.json(result.rows || []);
+  } catch (error: any) {
+    console.error("Error fetching claims over time:", error);
+    // Si la table n'existe pas, retourner un tableau vide
+    if (error.message?.includes("does not exist") || error.code === "42P01") {
+      return c.json([]);
+    }
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * GET /api/analytics/top-clients
+ * Top 5 clients par revenu
+ */
+app.get("/api/analytics/top-clients", authenticate, requireAdmin, async (c: any) => {
+  try {
+    const { sql } = await import("drizzle-orm");
+    const result = await db.execute(
+      sql`SELECT c.id as client_id,
+                 c.company,
+                 COALESCE(SUM(p.amount), 0)::text as total
+           FROM clients c
+           LEFT JOIN payments p ON p.client_id = c.id
+           GROUP BY c.id, c.company
+           ORDER BY SUM(p.amount) DESC NULLS LAST
+           LIMIT 5`
+    );
+    return c.json(result.rows || []);
+  } catch (error: any) {
+    console.error("Error fetching top clients:", error);
+    // Si la table payments n'existe pas, retourner des données vides
+    if (error.message?.includes("does not exist") || error.code === "42P01") {
+      return c.json([]);
+    }
+    return c.json([]);
   }
 });
 

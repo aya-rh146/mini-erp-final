@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import AuthProvider from "@/context/AuthContext";
+import RealtimeProvider from "@/components/RealtimeProvider";
 import { ToastContainer } from "@/components/ui/toast";
 import "./globals.css";
 
@@ -17,8 +18,10 @@ export default function RootLayout({
     <html lang="fr">
       <body>
         <AuthProvider>
-          {children}
-          <ToastContainer />
+          <RealtimeProvider>
+            {children}
+            <ToastContainer />
+          </RealtimeProvider>
         </AuthProvider>
       </body>
     </html>
