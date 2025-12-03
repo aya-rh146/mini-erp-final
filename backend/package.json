@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "migrate": "drizzle-kit generate && drizzle-kit push"
+    "migrate": "drizzle-kit generate && drizzle-kit push",
+    "test-db": "node test-connection.js"
   },
   "keywords": [],
   "author": "",
@@ -14,11 +15,14 @@
   "dependencies": {
     "@hono/node-server": "^1.19.6",
     "@hono/zod-validator": "^0.7.5",
+    "@neondatabase/serverless": "^1.0.2",
+    "@types/multer": "^2.0.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.44.7",
     "hono": "^4.10.7",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
     "pg": "^8.16.3"
   },
   "devDependencies": {

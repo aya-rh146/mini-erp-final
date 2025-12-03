@@ -8,6 +8,13 @@
       "when": 1764624242808,
       "tag": "0000_magenta_thunderbolt_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1764718161283,
+      "tag": "0001_open_nightshade",
+      "breakpoints": true
     }
   ]
 }

@@ -11,11 +11,15 @@ import { Plus, FileText, Clock, CheckCircle, AlertCircle, ExternalLink } from "l
 
 type Claim = {
   id: number;
+  clientId: number;
   title: string;
   description: string;
-  status: "submitted" | "in_review" | "resolved";
-  files: string[] | null;
+  status: "submitted" | "in_review" | "resolved" | "rejected";
+  reply: string | null;
+  filePaths: string[] | null;
+  assignedTo: number | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 const statusConfig = {
@@ -33,6 +37,11 @@ const statusConfig = {
     label: "Résolu",
     variant: "success" as const,
     icon: CheckCircle,
+  },
+  rejected: {
+    label: "Rejeté",
+    variant: "destructive" as const,
+    icon: AlertCircle,
   },
 };
 
@@ -59,7 +68,7 @@ export default function ClaimsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
+      <div className="bg-gray-50 p-8">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-center h-64">
             <p className="text-gray-500">Chargement...</p>
@@ -70,7 +79,7 @@ export default function ClaimsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="bg-gray-50 p-8">
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -115,33 +124,34 @@ export default function ClaimsPage() {
               });
 
               return (
-                <Card key={claim.id} className="hover:shadow-md transition-shadow">
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <CardTitle className="text-xl">{claim.title}</CardTitle>
-                          <Badge variant={status.variant} className="flex items-center gap-1">
-                            <StatusIcon size={14} />
-                            {status.label}
-                          </Badge>
+                <Link key={claim.id} href={`/claims/${claim.id}`}>
+                  <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <CardTitle className="text-xl">{claim.title}</CardTitle>
+                            <Badge variant={status.variant} className="flex items-center gap-1">
+                              <StatusIcon size={14} />
+                              {status.label}
+                            </Badge>
+                          </div>
+                          <p className="text-gray-600 line-clamp-2">{claim.description}</p>
                         </div>
-                        <p className="text-gray-600 line-clamp-2">{claim.description}</p>
                       </div>
-                    </div>
-                  </CardHeader>
+                    </CardHeader>
                   <CardContent>
                     <div className="flex items-center gap-4 text-sm text-gray-500">
                       <span>Créé le {date}</span>
-                      {claim.files && claim.files.length > 0 && (
+                      {claim.filePaths && claim.filePaths.length > 0 && (
                         <div className="flex items-center gap-2">
                           <FileText size={14} />
-                          <span>{claim.files.length} fichier(s)</span>
+                          <span>{claim.filePaths.length} fichier(s)</span>
                           <div className="flex gap-1">
-                            {claim.files.map((file, idx) => (
+                            {claim.filePaths.map((file, idx) => (
                               <a
                                 key={idx}
-                                href={file}
+                                href={`http://localhost:3002${file}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-blue-600 hover:text-blue-800"
@@ -152,9 +162,16 @@ export default function ClaimsPage() {
                           </div>
                         </div>
                       )}
+                      {claim.reply && (
+                        <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+                          <p className="text-sm font-medium text-blue-900 mb-1">Réponse :</p>
+                          <p className="text-sm text-blue-800">{claim.reply}</p>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
+                </Link>
               );
             })}
           </div>

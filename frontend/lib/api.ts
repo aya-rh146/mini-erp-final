@@ -3,20 +3,31 @@ const API_URL = "http://localhost:3002";
 
 export const api = async (endpoint: string, options: RequestInit = {}) => {
   try {
+    // Ne pas ajouter Content-Type pour FormData
+    const isFormData = options.body instanceof FormData;
+    const headers: HeadersInit = {
+      ...options.headers,
+    };
+    
+    if (!isFormData) {
+      headers["Content-Type"] = "application/json";
+    }
+
     const res = await fetch(`${API_URL}${endpoint}`, {
       ...options,
       credentials: "include", // important ba9i cookies yemchiw
-      headers: {
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
+      headers,
     });
 
     if (!res.ok) {
       const contentType = res.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
         const error = await res.json();
-        throw new Error(error.error || "Erreur serveur");
+        // Inclure le hint si disponible pour des messages d'erreur plus utiles
+        const errorMessage = error.hint 
+          ? `${error.error || "Erreur serveur"}\n\n💡 ${error.hint}`
+          : error.error || "Erreur serveur";
+        throw new Error(errorMessage);
       } else {
         const text = await res.text();
         throw new Error(`Erreur serveur: ${res.status} ${res.statusText}`);

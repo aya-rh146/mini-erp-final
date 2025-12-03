@@ -1,11 +1,10 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { UploadButton } from "@/lib/uploadthing";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
-import { ArrowLeft, Upload, FileText, X } from "lucide-react";
+import { ArrowLeft, Upload, FileText, X, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 export default function CreateClaimPage() {
@@ -13,48 +12,127 @@ export default function CreateClaimPage() {
   const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [files, setFiles] = useState<string[]>([]);
+  const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [clients, setClients] = useState<Array<{ id: number; email: string; fullName: string | null }>>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string>("");
+  const isAdminOrSupervisor = user?.role === "admin" || user?.role === "supervisor";
+
+  // Charger la liste des clients si admin/supervisor
+  useEffect(() => {
+    if (isAdminOrSupervisor) {
+      loadClients();
+    }
+  }, [isAdminOrSupervisor]);
+
+  const loadClients = async () => {
+    try {
+      const data = await api("/api/users");
+      const clientList = data.filter((u: any) => u.role === "client" && u.active);
+      setClients(clientList);
+    } catch (error: any) {
+      console.error("Error loading clients:", error);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    
+    if (files.length + selectedFiles.length > 20) {
+      setError("Maximum 20 fichiers autorisés");
+      return;
+    }
+
+    const validFiles: File[] = [];
+    const allowedTypes = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
+    const maxSize = 20 * 1024 * 1024; // 20 Mo
+
+    for (const file of selectedFiles) {
+      if (!allowedTypes.includes(file.type)) {
+        setError(`Type de fichier non autorisé: ${file.name}. Formats acceptés: PDF, JPG, PNG`);
+        continue;
+      }
+      if (file.size > maxSize) {
+        setError(`Fichier trop volumineux: ${file.name}. Maximum: 20 Mo`);
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    setFiles((prev) => [...prev, ...validFiles]);
+    setError(null);
+  };
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    setError(null);
+
     if (!title.trim()) {
-      toast("Le titre est obligatoire", "error");
+      setError("Le titre est obligatoire");
       return;
     }
 
     if (!description.trim()) {
-      toast("La description est obligatoire", "error");
+      setError("La description est obligatoire");
+      return;
+    }
+
+    if (isAdminOrSupervisor && !selectedClientId) {
+      setError("Veuillez sélectionner un client");
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      const response = await api("/api/claims", {
-        method: "POST",
-        body: JSON.stringify({
-          title: title.trim(),
-          description: description.trim(),
-          files: files,
-        }),
+      const formData = new FormData();
+      formData.append("title", title.trim());
+      formData.append("description", description.trim());
+      
+      if (isAdminOrSupervisor && selectedClientId) {
+        formData.append("clientId", selectedClientId);
+      }
+      
+      files.forEach((file) => {
+        formData.append("files", file);
       });
 
+      const response = await fetch("http://localhost:3002/api/claims", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Erreur lors de la création");
+      }
+
+      const data = await response.json();
       toast("Réclamation créée avec succès !", "success");
       setTimeout(() => {
         router.push("/dashboard/claims");
       }, 1500);
-    } catch (error: any) {
-      toast(error.message || "Erreur lors de la création de la réclamation", "error");
+    } catch (err: any) {
+      setError(err.message || "Erreur lors de la création de la réclamation");
       setIsSubmitting(false);
     }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
   };
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-3xl mx-auto">
-        {/* Header */}
         <div className="mb-6">
           <Link
             href="/dashboard/claims"
@@ -71,9 +149,42 @@ export default function CreateClaimPage() {
           </p>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm p-6 space-y-6">
-          {/* Title */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-red-800 text-sm">{error}</p>
+            </div>
+          )}
+
+          {/* Client Selection (Admin/Supervisor only) */}
+          {isAdminOrSupervisor && (
+            <div>
+              <label htmlFor="clientId" className="block text-sm font-medium text-gray-700 mb-2">
+                Client <span className="text-red-500">*</span>
+              </label>
+              <select
+                id="clientId"
+                value={selectedClientId}
+                onChange={(e) => setSelectedClientId(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+                disabled={isSubmitting}
+              >
+                <option value="">Sélectionner un client</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.fullName || client.email} ({client.email})
+                  </option>
+                ))}
+              </select>
+              {clients.length === 0 && (
+                <p className="text-sm text-gray-500 mt-1">
+                  Aucun client disponible. Créez d'abord un client dans la section Utilisateurs.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
               Titre de la réclamation <span className="text-red-500">*</span>
@@ -86,10 +197,10 @@ export default function CreateClaimPage() {
               placeholder="Ex: Problème avec le produit X"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
+              disabled={isSubmitting}
             />
           </div>
 
-          {/* Description */}
           <div>
             <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
               Description détaillée <span className="text-red-500">*</span>
@@ -102,38 +213,47 @@ export default function CreateClaimPage() {
               rows={6}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
               required
+              disabled={isSubmitting}
             />
           </div>
 
-          {/* File Upload */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Pièces jointes (PDF, JPG, PNG)
             </label>
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-              <UploadButton
-                endpoint="claimFiles"
-                onClientUploadComplete={(res) => {
-                  if (res) {
-                    const uploadedFiles = res.map((file) => file.url);
-                    setFiles((prev) => [...prev, ...uploadedFiles]);
-                    toast(`${res.length} fichier(s) uploadé(s) avec succès`, "success");
-                  }
-                }}
-                onUploadError={(error: Error) => {
-                  toast(`Erreur lors de l'upload: ${error.message}`, "error");
-                }}
-                appearance={{
-                  button: "ut-ready:bg-blue-600 ut-uploading:cursor-not-allowed rounded-lg px-4 py-2 bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors",
-                  allowedContent: "text-sm text-gray-500 mt-2",
-                }}
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
+              <input
+                type="file"
+                id="file-upload"
+                multiple
+                accept=".pdf,.jpg,.jpeg,.png"
+                onChange={handleFileChange}
+                className="hidden"
+                disabled={isSubmitting || files.length >= 20}
               />
+              <label
+                htmlFor="file-upload"
+                className={`flex flex-col items-center justify-center cursor-pointer ${
+                  isSubmitting || files.length >= 20
+                    ? "opacity-50 cursor-not-allowed"
+                    : "hover:bg-gray-50"
+                }`}
+              >
+                <Upload size={32} className="text-gray-400 mb-2" />
+                <p className="text-sm text-gray-600 text-center">
+                  Cliquez pour sélectionner des fichiers ou glissez-déposez
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Maximum 20 fichiers, 20 Mo par fichier
+                </p>
+              </label>
+
               {files.length > 0 && (
                 <div className="mt-4 space-y-2">
                   <p className="text-sm font-medium text-gray-700">
-                    Fichiers uploadés ({files.length}):
+                    Fichiers sélectionnés ({files.length}/20):
                   </p>
-                  <div className="space-y-1">
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
                     {files.map((file, index) => (
                       <div
                         key={index}
@@ -141,12 +261,16 @@ export default function CreateClaimPage() {
                       >
                         <FileText size={16} className="text-gray-500" />
                         <span className="text-gray-700 truncate flex-1">
-                          {file.split("/").pop()}
+                          {file.name}
+                        </span>
+                        <span className="text-gray-500 text-xs">
+                          {formatFileSize(file.size)}
                         </span>
                         <button
                           type="button"
-                          onClick={() => setFiles((prev) => prev.filter((_, i) => i !== index))}
+                          onClick={() => removeFile(index)}
                           className="text-red-500 hover:text-red-700"
+                          disabled={isSubmitting}
                         >
                           <X size={16} />
                         </button>
@@ -157,11 +281,10 @@ export default function CreateClaimPage() {
               )}
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              Formats acceptés: PDF, JPG, PNG (max 4MB par fichier, 5 fichiers max)
+              Formats acceptés: PDF, JPG, PNG (max 20MB par fichier, 20 fichiers max)
             </p>
           </div>
 
-          {/* Submit Button */}
           <div className="flex gap-4 pt-4">
             <button
               type="button"
@@ -174,9 +297,16 @@ export default function CreateClaimPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {isSubmitting ? "Envoi en cours..." : "Créer la réclamation"}
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  Envoi en cours...
+                </>
+              ) : (
+                "Créer la réclamation"
+              )}
             </button>
           </div>
         </form>
@@ -184,4 +314,3 @@ export default function CreateClaimPage() {
     </div>
   );
 }
-

@@ -4,15 +4,19 @@ import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
 import Link from "next/link";
-import { Plus, FileText, Clock, CheckCircle, AlertCircle } from "lucide-react";
+import { Plus, FileText, Clock, CheckCircle, AlertCircle, X } from "lucide-react";
 
 type Claim = {
   id: number;
+  clientId: number;
   title: string;
   description: string;
-  status: "submitted" | "in_review" | "resolved";
-  files: string[] | null;
+  status: "submitted" | "in_review" | "resolved" | "rejected";
+  reply: string | null;
+  filePaths: string[] | null;
+  assignedTo: number | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 const statusConfig = {
@@ -30,6 +34,11 @@ const statusConfig = {
     label: "Résolu",
     color: "bg-green-100 text-green-800",
     icon: CheckCircle,
+  },
+  rejected: {
+    label: "Rejeté",
+    color: "bg-red-100 text-red-800",
+    icon: X,
   },
 };
 
@@ -116,9 +125,10 @@ export default function ClaimsPage() {
               });
 
               return (
-                <div
+                <Link
                   key={claim.id}
-                  className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow"
+                  href={`/claims/${claim.id}`}
+                  className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -138,16 +148,19 @@ export default function ClaimsPage() {
                       </p>
                       <div className="flex items-center gap-4 text-sm text-gray-500">
                         <span>Créé le {date}</span>
-                        {claim.files && claim.files.length > 0 && (
+                        {claim.filePaths && claim.filePaths.length > 0 && (
                           <span className="flex items-center gap-1">
                             <FileText size={14} />
-                            {claim.files.length} fichier(s)
+                            {claim.filePaths.length} fichier(s)
                           </span>
+                        )}
+                        {claim.reply && (
+                          <span className="text-blue-600">• Réponse disponible</span>
                         )}
                       </div>
                     </div>
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>

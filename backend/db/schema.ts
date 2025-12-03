@@ -12,20 +12,29 @@ import {
     pgEnum,
   } from "drizzle-orm/pg-core";
   
-  // ENUM s7i7
+  // ENUM pour les statuts de réclamation
   export const claimStatusEnum = pgEnum("claim_status", [
     "submitted",
     "in_review",
     "resolved",
+    "rejected",
   ]);
   
-  // USERS – bla chi annotation ghalta
+  // ENUM pour les rôles utilisateurs
+  export const userRoleEnum = pgEnum("user_role", [
+    "admin",
+    "supervisor",
+    "operator",
+    "client",
+  ]);
+  
+  // USERS – Table utilisateurs avec authentification complète
   export const users = pgTable("users", {
     id: serial("id").primaryKey(),
     email: varchar("email", { length: 255 }).unique().notNull(),
-    password: varchar("password", { length: 255 }).notNull(),
+    password: varchar("password", { length: 255 }).notNull(), // Hashé avec bcryptjs
     fullName: varchar("full_name", { length: 255 }),
-    role: varchar("role", { length: 20 }).notNull().default("client"),
+    role: userRoleEnum("role").notNull().default("client"),
     supervisorId: integer("supervisor_id").references((): any => users.id, {
       onDelete: "set null",
     }),
@@ -68,12 +77,14 @@ import {
     clientId: integer("client_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    operatorId: integer("operator_id").references(() => users.id, {
-      onDelete: "set null",
-    }),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
     status: claimStatusEnum("status").default("submitted"),
-    files: jsonb("files").$type<string[]>(),
+    reply: text("reply"), // Réponse de l'admin/supervisor/operator
+    filePaths: jsonb("file_paths").$type<string[]>(), // Chemins des fichiers uploadés
+    assignedTo: integer("assigned_to").references(() => users.id, {
+      onDelete: "set null",
+    }), // Assigné à un opérateur (supervisor only)
     createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
   });

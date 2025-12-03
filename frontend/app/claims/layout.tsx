@@ -2,6 +2,7 @@
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import ClientSidebar from "@/components/ClientSidebar";
 
 export default function ClaimsLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -29,6 +30,13 @@ export default function ClaimsLayout({ children }: { children: React.ReactNode }
     return null;
   }
 
-  return <>{children}</>;
+  return (
+    <div className="flex min-h-screen bg-gray-50">
+      <ClientSidebar />
+      <main className="flex-1 overflow-auto">
+        {children}
+      </main>
+    </div>
+  );
 }
 
