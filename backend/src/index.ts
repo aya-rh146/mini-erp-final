@@ -7,8 +7,8 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { users, claims, leads, clients, products, claimComments } from "../db/schema";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { users, claims, leads, clients, products, claimComments, payments } from "../db/schema";
+import { eq, desc, and, inArray, or, isNull } from "drizzle-orm";
 import { handleFileUpload } from "./upload";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { broadcastClaimEvent } from "./realtime";
@@ -670,11 +670,10 @@ app.post("/api/claims", authenticate, async (c: any) => {
 app.get("/api/claims", authenticate, async (c: any) => {
   try {
     const user = c.get("user");
-    const allowedRoles: UserRole[] = ["admin", "supervisor", "operator"];
 
     let result;
-    if (allowedRoles.includes(user.role)) {
-      // Admin, supervisor et operator voient toutes les réclamations
+    if (user.role === "admin") {
+      // Admin voit toutes les réclamations
       result = await db
         .select({
           id: claims.id,
@@ -689,6 +688,73 @@ app.get("/api/claims", authenticate, async (c: any) => {
           updatedAt: claims.updatedAt,
         })
         .from(claims)
+        .orderBy(desc(claims.createdAt));
+    } else if (user.role === "supervisor") {
+      // Supervisor voit les réclamations assignées à ses opérateurs OU non assignées
+      const operators = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.supervisorId, user.id), eq(users.role, "operator")));
+      const operatorIds = operators.map((o) => o.id);
+      
+      if (operatorIds.length > 0) {
+        result = await db
+          .select({
+            id: claims.id,
+            clientId: claims.clientId,
+            title: claims.title,
+            description: claims.description,
+            status: claims.status,
+            reply: claims.reply,
+            filePaths: claims.filePaths,
+            assignedTo: claims.assignedTo,
+            createdAt: claims.createdAt,
+            updatedAt: claims.updatedAt,
+          })
+          .from(claims)
+          .where(
+            or(
+              inArray(claims.assignedTo, operatorIds),
+              isNull(claims.assignedTo)
+            )
+          )
+          .orderBy(desc(claims.createdAt));
+      } else {
+        // Si pas d'opérateurs, voir seulement les claims non assignés
+        result = await db
+          .select({
+            id: claims.id,
+            clientId: claims.clientId,
+            title: claims.title,
+            description: claims.description,
+            status: claims.status,
+            reply: claims.reply,
+            filePaths: claims.filePaths,
+            assignedTo: claims.assignedTo,
+            createdAt: claims.createdAt,
+            updatedAt: claims.updatedAt,
+          })
+          .from(claims)
+          .where(isNull(claims.assignedTo))
+          .orderBy(desc(claims.createdAt));
+      }
+    } else if (user.role === "operator") {
+      // Operator voit seulement les réclamations qui lui sont assignées
+      result = await db
+        .select({
+          id: claims.id,
+          clientId: claims.clientId,
+          title: claims.title,
+          description: claims.description,
+          status: claims.status,
+          reply: claims.reply,
+          filePaths: claims.filePaths,
+          assignedTo: claims.assignedTo,
+          createdAt: claims.createdAt,
+          updatedAt: claims.updatedAt,
+        })
+        .from(claims)
+        .where(eq(claims.assignedTo, user.id))
         .orderBy(desc(claims.createdAt));
     } else {
       // Client voit seulement ses propres réclamations
@@ -1120,14 +1186,28 @@ app.get("/api/leads", authenticate, async (c: any) => {
         .from(users)
         .where(and(eq(users.supervisorId, user.id), eq(users.role, "operator")));
       const operatorIds = operators.map((o) => o.id);
+      
+      // Le superviseur voit :
+      // 1. Les leads assignés à ses opérateurs
+      // 2. Les leads non assignés (null)
       if (operatorIds.length > 0) {
         result = await db
           .select()
           .from(leads)
-          .where(inArray(leads.assignedTo, operatorIds))
+          .where(
+            or(
+              inArray(leads.assignedTo, operatorIds),
+              isNull(leads.assignedTo)
+            )
+          )
           .orderBy(desc(leads.createdAt));
       } else {
-        result = [];
+        // Si pas d'opérateurs, voir seulement les leads non assignés
+        result = await db
+          .select()
+          .from(leads)
+          .where(isNull(leads.assignedTo))
+          .orderBy(desc(leads.createdAt));
       }
     } else if (user.role === "operator") {
       result = await db
@@ -1740,36 +1820,91 @@ app.get("/api/supervisor/overview", authenticate, requireSupervisor, async (c: a
   try {
     const user = c.get("user");
 
-    // Récupérer les opérateurs du superviseur
-    const operators = await db
-      .select({
-        id: users.id,
-        email: users.email,
-        fullName: users.fullName,
-        role: users.role,
-      })
-      .from(users)
-      .where(and(eq(users.supervisorId, user.id), eq(users.role, "operator")));
-
-    const operatorIds = operators.map((o) => o.id);
-
+    let operators: any[] = [];
+    let operatorIds: number[] = [];
     let operatorLeads: any[] = [];
     let operatorClaims: any[] = [];
 
-    if (operatorIds.length > 0) {
-      // Leads des opérateurs
+    if (user.role === "admin") {
+      // Admin voit tous les opérateurs et toutes les données
+      operators = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          fullName: users.fullName,
+          role: users.role,
+        })
+        .from(users)
+        .where(eq(users.role, "operator"));
+
+      operatorIds = operators.map((o) => o.id);
+
+      // Admin voit tous les leads
       operatorLeads = await db
         .select()
         .from(leads)
-        .where(inArray(leads.assignedTo, operatorIds))
         .orderBy(desc(leads.createdAt));
 
-      // Claims des opérateurs
+      // Admin voit toutes les claims
       operatorClaims = await db
         .select()
         .from(claims)
-        .where(inArray(claims.assignedTo, operatorIds))
         .orderBy(desc(claims.createdAt));
+    } else {
+      // Supervisor : récupérer les opérateurs du superviseur
+      operators = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          fullName: users.fullName,
+          role: users.role,
+        })
+        .from(users)
+        .where(and(eq(users.supervisorId, user.id), eq(users.role, "operator")));
+
+      operatorIds = operators.map((o) => o.id);
+
+      // Leads : assignés aux opérateurs OU non assignés
+      if (operatorIds.length > 0) {
+        operatorLeads = await db
+          .select()
+          .from(leads)
+          .where(
+            or(
+              inArray(leads.assignedTo, operatorIds),
+              isNull(leads.assignedTo)
+            )
+          )
+          .orderBy(desc(leads.createdAt));
+      } else {
+        // Si pas d'opérateurs, voir seulement les leads non assignés
+        operatorLeads = await db
+          .select()
+          .from(leads)
+          .where(isNull(leads.assignedTo))
+          .orderBy(desc(leads.createdAt));
+      }
+
+      // Claims : assignés aux opérateurs OU non assignés
+      if (operatorIds.length > 0) {
+        operatorClaims = await db
+          .select()
+          .from(claims)
+          .where(
+            or(
+              inArray(claims.assignedTo, operatorIds),
+              isNull(claims.assignedTo)
+            )
+          )
+          .orderBy(desc(claims.createdAt));
+      } else {
+        // Si pas d'opérateurs, voir seulement les claims non assignés
+        operatorClaims = await db
+          .select()
+          .from(claims)
+          .where(isNull(claims.assignedTo))
+          .orderBy(desc(claims.createdAt));
+      }
     }
 
     return c.json({
@@ -1780,9 +1915,10 @@ app.get("/api/supervisor/overview", authenticate, requireSupervisor, async (c: a
     });
   } catch (error: any) {
     console.error("Error fetching supervisor overview:", error);
+    const user = c.get("user");
     // En cas d'erreur, retourner un objet vide plutôt qu'une erreur 500
     return c.json({
-      supervisorId: user.id,
+      supervisorId: user?.id || 0,
       operators: [],
       leads: [],
       claims: [],
@@ -1911,6 +2047,141 @@ app.get("/api/analytics/top-clients", authenticate, requireAdmin, async (c: any)
       return c.json([]);
     }
     return c.json([]);
+  }
+});
+
+// ==================== ROUTES PAYMENTS ====================
+
+/**
+ * GET /api/payments
+ * Liste tous les paiements (admin/supervisor)
+ */
+app.get("/api/payments", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const result = await db
+      .select({
+        id: payments.id,
+        clientId: payments.clientId,
+        amount: payments.amount,
+        paidAt: payments.paidAt,
+      })
+      .from(payments)
+      .orderBy(desc(payments.paidAt));
+
+    return c.json(result);
+  } catch (error: any) {
+    console.error("Error fetching payments:", error);
+    // Si la table n'existe pas, retourner un tableau vide
+    if (error.message?.includes("does not exist") || error.code === "42P01") {
+      return c.json([]);
+    }
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * POST /api/payments
+ * Crée un nouveau paiement (admin/supervisor)
+ */
+app.post("/api/payments", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const body = await c.req.json();
+
+    if (!body.clientId) {
+      return c.json({ error: "clientId est obligatoire" }, 400);
+    }
+
+    if (!body.amount || parseFloat(body.amount) <= 0) {
+      return c.json({ error: "Le montant doit être supérieur à 0" }, 400);
+    }
+
+    // Vérifier que le client existe
+    const client = await db
+      .select()
+      .from(clients)
+      .where(eq(clients.id, parseInt(body.clientId)))
+      .limit(1);
+
+    if (client.length === 0) {
+      return c.json({ error: "Client non trouvé" }, 404);
+    }
+
+    const newPayment = await db
+      .insert(payments)
+      .values({
+        clientId: parseInt(body.clientId),
+        amount: body.amount.toString(),
+        paidAt: body.paidAt ? new Date(body.paidAt) : new Date(),
+      })
+      .returning({
+        id: payments.id,
+        clientId: payments.clientId,
+        amount: payments.amount,
+        paidAt: payments.paidAt,
+      });
+
+    return c.json(newPayment[0], 201);
+  } catch (error: any) {
+    console.error("Error creating payment:", error);
+    if (error.code === "23503") {
+      return c.json({ error: "Client non trouvé" }, 404);
+    }
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * GET /api/payments/:id
+ * Récupère un paiement par ID
+ */
+app.get("/api/payments/:id", authenticate, requireSupervisor, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    const result = await db
+      .select({
+        id: payments.id,
+        clientId: payments.clientId,
+        amount: payments.amount,
+        paidAt: payments.paidAt,
+      })
+      .from(payments)
+      .where(eq(payments.id, id))
+      .limit(1);
+
+    if (result.length === 0) {
+      return c.json({ error: "Paiement non trouvé" }, 404);
+    }
+
+    return c.json(result[0]);
+  } catch (error: any) {
+    console.error("Error fetching payment:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
+ * DELETE /api/payments/:id
+ * Supprime un paiement (admin uniquement)
+ */
+app.delete("/api/payments/:id", authenticate, requireAdmin, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    await db.delete(payments).where(eq(payments.id, id));
+
+    return c.json({ success: true, message: "Paiement supprimé avec succès" });
+  } catch (error: any) {
+    console.error("Error deleting payment:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
   }
 });
 

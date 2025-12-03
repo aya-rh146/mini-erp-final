@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
+import { Card } from "@/components/ui/card";
 import { Plus, Edit, Trash2, User, Loader2, X, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -49,8 +50,8 @@ export default function UsersPage() {
   // Vérifier que l'utilisateur est admin
   if (user?.role !== "admin") {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
-        <div className="max-w-6xl mx-auto">
+      <div className="p-6 md:p-8">
+        <div className="max-w-7xl mx-auto">
           <div className="bg-red-50 border border-red-200 rounded-lg p-4">
             <p className="text-red-800">Accès refusé. Seuls les administrateurs peuvent gérer les utilisateurs.</p>
           </div>
@@ -182,10 +183,13 @@ export default function UsersPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
-        <div className="max-w-6xl mx-auto">
+      <div className="p-6 md:p-8">
+        <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-center h-64">
-            <Loader2 className="animate-spin text-gray-400" size={32} />
+            <div className="text-center">
+              <Loader2 className="animate-spin text-blue-600 mx-auto mb-4" size={48} />
+              <p className="text-gray-600 font-medium">Chargement...</p>
+            </div>
           </div>
         </div>
       </div>
@@ -193,19 +197,21 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-6xl mx-auto">
+    <div className="p-6 md:p-8 space-y-6 animate-fade-in">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Gestion des Utilisateurs</h1>
-            <p className="text-gray-600 mt-2">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
+              Gestion des Utilisateurs
+            </h1>
+            <p className="text-gray-600">
               Créez et gérez les utilisateurs du système
             </p>
           </div>
           <button
             onClick={() => handleOpenModal()}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl"
           >
             <Plus size={20} />
             Nouvel utilisateur
@@ -213,10 +219,10 @@ export default function UsersPage() {
         </div>
 
         {/* Users Table */}
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <Card className="shadow-lg border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Utilisateur
@@ -238,25 +244,25 @@ export default function UsersPage() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white divide-y divide-gray-100">
                 {users.map((userItem) => (
-                  <tr key={userItem.id} className="hover:bg-gray-50">
+                  <tr key={userItem.id} className="hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-200">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                          <User size={20} className="text-blue-600" />
+                        <div className="flex-shrink-0 h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-md">
+                          {(userItem.fullName || userItem.email)[0].toUpperCase()}
                         </div>
                         <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">
+                          <div className="text-sm font-semibold text-gray-900">
                             {userItem.fullName || "Sans nom"}
                           </div>
-                          <div className="text-sm text-gray-500">{userItem.email}</div>
+                          <div className="text-sm text-gray-600">{userItem.email}</div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${roleColors[userItem.role]}`}
+                        className={`inline-flex px-3 py-1.5 text-xs font-bold rounded-full shadow-sm ${roleColors[userItem.role]}`}
                       >
                         {roleLabels[userItem.role]}
                       </span>
@@ -284,7 +290,7 @@ export default function UsersPage() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleOpenModal(userItem)}
-                          className="text-blue-600 hover:text-blue-900"
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                           title="Modifier"
                         >
                           <Edit size={18} />
@@ -303,7 +309,7 @@ export default function UsersPage() {
               </tbody>
             </table>
           </div>
-        </div>
+        </Card>
 
         {/* Modal Create/Edit */}
         {showModal && (

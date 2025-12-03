@@ -67,10 +67,13 @@ export default function OperatorDashboardPage() {
 
   if (authLoading || loading || !user) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
-        <div className="max-w-6xl mx-auto">
+      <div className="p-6 md:p-8">
+        <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-center h-64">
-            <Loader2 className="animate-spin text-gray-400" size={32} />
+            <div className="text-center">
+              <Loader2 className="animate-spin text-blue-600 mx-auto mb-4" size={48} />
+              <p className="text-gray-600 font-medium">Chargement...</p>
+            </div>
           </div>
         </div>
       </div>
@@ -78,58 +81,72 @@ export default function OperatorDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="p-6 md:p-8 animate-fade-in">
+      <div className="max-w-7xl mx-auto space-y-8">
+        {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard Opérateur</h1>
-          <p className="text-gray-600 mt-2">Vos leads et réclamations assignées</p>
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mb-2">
+            Dashboard Opérateur
+          </h1>
+          <p className="text-gray-600">Vos leads et réclamations assignées</p>
         </div>
 
         {/* Stats Cards */}
         <div className="grid gap-6 md:grid-cols-2">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Leads assignés</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-2xl shadow-md hover:shadow-lg transition-all duration-200">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 px-6 pt-6">
+              <CardTitle className="text-sm font-semibold text-green-900">Leads assignés</CardTitle>
+              <div className="p-2.5 bg-green-600 rounded-xl shadow-sm">
+                <TrendingUp className="h-5 w-5 text-white" />
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{leads.length}</div>
+            <CardContent className="px-6 pb-6">
+              <div className="text-4xl font-bold text-green-900">{leads.length}</div>
+              <p className="text-sm text-green-700 mt-1.5">leads à traiter</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Réclamations assignées</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
+          <Card className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-2xl shadow-md hover:shadow-lg transition-all duration-200">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 px-6 pt-6">
+              <CardTitle className="text-sm font-semibold text-purple-900">Réclamations assignées</CardTitle>
+              <div className="p-2.5 bg-purple-600 rounded-xl shadow-sm">
+                <FileText className="h-5 w-5 text-white" />
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{claims.length}</div>
+            <CardContent className="px-6 pb-6">
+              <div className="text-4xl font-bold text-purple-900">{claims.length}</div>
+              <p className="text-sm text-purple-700 mt-1.5">réclamations en cours</p>
             </CardContent>
           </Card>
         </div>
 
         {/* Leads */}
-        <Card>
-          <CardHeader className="flex items-center justify-between">
-            <CardTitle>Mes Leads ({leads.length})</CardTitle>
-            <Link href="/dashboard/leads">
-              <span className="text-sm text-blue-600 hover:underline">Voir tout</span>
+        <Card className="bg-white border border-gray-200 rounded-2xl shadow-md">
+          <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-gray-200 flex items-center justify-between px-6 py-5 rounded-t-2xl">
+            <CardTitle className="text-xl font-bold text-gray-900">
+              Mes Leads <span className="text-gray-500 font-normal">({leads.length})</span>
+            </CardTitle>
+            <Link href="/dashboard/leads" className="text-sm font-medium text-green-600 hover:text-green-700 hover:underline transition-colors">
+              Voir tout →
             </Link>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-6">
             {leads.length === 0 ? (
-              <p className="text-sm text-gray-500">Aucun lead assigné</p>
+              <div className="text-center py-16">
+                <TrendingUp className="mx-auto text-gray-300 mb-4" size={48} />
+                <p className="text-gray-500 font-medium">Aucun lead assigné</p>
+              </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {leads.slice(0, 5).map((lead) => (
                   <div
                     key={lead.id}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                    className="flex items-center justify-between p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-100 hover:border-green-200 hover:shadow-sm transition-all duration-200"
                   >
-                    <div>
-                      <p className="font-medium">{lead.name}</p>
-                      <p className="text-sm text-gray-500">{lead.email || lead.phone || "Pas de contact"}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm mb-1 truncate">{lead.name}</p>
+                      <p className="text-xs text-gray-600 truncate">{lead.email || lead.phone || "Pas de contact"}</p>
                     </div>
-                    <Badge variant="outline">{lead.status}</Badge>
+                    <Badge className="bg-green-600 text-white border-0 text-xs px-2.5 py-1 rounded-lg capitalize ml-3 flex-shrink-0">{lead.status}</Badge>
                   </div>
                 ))}
               </div>
@@ -138,28 +155,33 @@ export default function OperatorDashboardPage() {
         </Card>
 
         {/* Claims */}
-        <Card>
-          <CardHeader className="flex items-center justify-between">
-            <CardTitle>Mes Réclamations ({claims.length})</CardTitle>
-            <Link href="/dashboard/claims">
-              <span className="text-sm text-blue-600 hover:underline">Voir tout</span>
+        <Card className="bg-white border border-gray-200 rounded-2xl shadow-md">
+          <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b border-gray-200 flex items-center justify-between px-6 py-5 rounded-t-2xl">
+            <CardTitle className="text-xl font-bold text-gray-900">
+              Mes Réclamations <span className="text-gray-500 font-normal">({claims.length})</span>
+            </CardTitle>
+            <Link href="/dashboard/claims" className="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline transition-colors">
+              Voir tout →
             </Link>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-6">
             {claims.length === 0 ? (
-              <p className="text-sm text-gray-500">Aucune réclamation assignée</p>
+              <div className="text-center py-16">
+                <FileText className="mx-auto text-gray-300 mb-4" size={48} />
+                <p className="text-gray-500 font-medium">Aucune réclamation assignée</p>
+              </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {claims.slice(0, 5).map((claim) => (
                   <div
                     key={claim.id}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                    className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-100 hover:border-purple-200 hover:shadow-sm transition-all duration-200"
                   >
-                    <div>
-                      <p className="font-medium">{claim.title}</p>
-                      <p className="text-sm text-gray-500 line-clamp-1">{claim.description}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm mb-1 truncate">{claim.title}</p>
+                      <p className="text-xs text-gray-600 line-clamp-1">{claim.description}</p>
                     </div>
-                    <Badge variant="outline">{claim.status}</Badge>
+                    <Badge className="bg-purple-600 text-white border-0 text-xs px-2.5 py-1 rounded-lg capitalize ml-3 flex-shrink-0">{claim.status}</Badge>
                   </div>
                 ))}
               </div>

@@ -20,6 +20,8 @@ import {
   LineChart,
   Line,
   ResponsiveContainer,
+  CartesianGrid,
+  Dot,
 } from "recharts";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
@@ -97,10 +99,13 @@ export default function AnalyticsPage() {
 
   if (authLoading || loading || !user || user.role !== "admin") {
     return (
-      <div className="p-8">
-        <div className="max-w-6xl mx-auto">
+      <div className="p-6 md:p-8">
+        <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-center h-64">
-            <Loader2 className="animate-spin text-gray-400" size={32} />
+            <div className="text-center">
+              <Loader2 className="animate-spin text-blue-600 mx-auto mb-4" size={48} />
+              <p className="text-gray-600 font-medium">Chargement...</p>
+            </div>
           </div>
         </div>
       </div>
@@ -108,19 +113,21 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="p-6 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="p-6 md:p-8 animate-fade-in">
+      <div className="max-w-7xl mx-auto space-y-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard Analytics</h1>
-          <p className="text-gray-600 mt-2">Statistiques et analyses du système</p>
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">
+            Dashboard Analytics
+          </h1>
+          <p className="text-gray-600">Statistiques et analyses du système</p>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Leads par statut</CardTitle>
+          <Card className="bg-white border border-gray-200 rounded-2xl shadow-md">
+            <CardHeader className="px-6 py-5">
+              <CardTitle className="text-lg font-bold text-gray-900">Leads par statut</CardTitle>
             </CardHeader>
-            <CardContent className="h-64">
+            <CardContent className="h-64 px-6 pb-6">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={leadsStatus} dataKey="value" nameKey="name" label>
@@ -135,11 +142,11 @@ export default function AnalyticsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>CA mensuel</CardTitle>
+          <Card className="bg-white border border-gray-200 rounded-2xl shadow-md">
+            <CardHeader className="px-6 py-5">
+              <CardTitle className="text-lg font-bold text-gray-900">CA mensuel</CardTitle>
             </CardHeader>
-            <CardContent className="h-64">
+            <CardContent className="h-64 px-6 pb-6">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={revenue}>
                   <XAxis dataKey="month" />
@@ -153,11 +160,11 @@ export default function AnalyticsPage() {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Claims par statut</CardTitle>
+          <Card className="bg-white border border-gray-200 rounded-2xl shadow-md">
+            <CardHeader className="px-6 py-5">
+              <CardTitle className="text-lg font-bold text-gray-900">Claims par statut</CardTitle>
             </CardHeader>
-            <CardContent className="h-64">
+            <CardContent className="h-64 px-6 pb-6">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -177,17 +184,39 @@ export default function AnalyticsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Évolution des claims</CardTitle>
+          <Card className="bg-white border border-gray-200 rounded-2xl shadow-md">
+            <CardHeader className="px-6 py-5">
+              <CardTitle className="text-lg font-bold text-gray-900">Évolution des claims</CardTitle>
             </CardHeader>
-            <CardContent className="h-64">
+            <CardContent className="h-64 px-6 pb-6">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={claimsOverTime}>
-                  <XAxis dataKey="day" />
-                  <YAxis />
-                  <ReTooltip />
-                  <Line type="monotone" dataKey="count" stroke="#10b981" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis 
+                    dataKey="day" 
+                    tick={{ fontSize: 12 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                  />
+                  <YAxis tick={{ fontSize: 12 }} />
+                  <ReTooltip 
+                    contentStyle={{ 
+                      backgroundColor: '#fff', 
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      padding: '8px'
+                    }}
+                    labelStyle={{ fontWeight: 'bold', marginBottom: '4px' }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="count" 
+                    stroke="#10b981" 
+                    strokeWidth={3}
+                    dot={{ fill: '#10b981', r: 6, strokeWidth: 2, stroke: '#fff' }}
+                    activeDot={{ r: 8, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>

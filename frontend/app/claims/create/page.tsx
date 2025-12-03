@@ -56,7 +56,7 @@ export default function CreateClaimPage() {
         continue;
       }
       if (file.size > maxSize) {
-        setError(`Fichier trop volumineux: ${file.name}. Maximum: 100 Mo`);
+        setError(`Fichier trop volumineux: ${file.name}. Maximum: 300 Mo`);
         continue;
       }
       validFiles.push(file);

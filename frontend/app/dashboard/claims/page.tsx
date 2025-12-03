@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
+import { Card, CardContent } from "@/components/ui/card";
 import Link from "next/link";
 import { Plus, FileText, Clock, CheckCircle, AlertCircle, X } from "lucide-react";
 
@@ -65,10 +66,13 @@ export default function ClaimsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
-        <div className="max-w-6xl mx-auto">
+      <div className="p-6 md:p-8">
+        <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-center h-64">
-            <p className="text-gray-500">Chargement...</p>
+            <div className="text-center">
+              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-gray-600 font-medium">Chargement des réclamations...</p>
+            </div>
           </div>
         </div>
       </div>
@@ -76,19 +80,21 @@ export default function ClaimsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-6xl mx-auto">
+    <div className="p-6 md:p-8 space-y-6 animate-fade-in">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Mes réclamations</h1>
-            <p className="text-gray-600 mt-2">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
+              Réclamations
+            </h1>
+            <p className="text-gray-600">
               Gérez toutes vos réclamations en un seul endroit
             </p>
           </div>
           <Link
             href="/dashboard/claims/create"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl"
           >
             <Plus size={20} />
             Nouvelle réclamation
@@ -97,24 +103,28 @@ export default function ClaimsPage() {
 
         {/* Claims List */}
         {claims.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-sm p-12 text-center">
-            <FileText size={48} className="mx-auto text-gray-400 mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              Aucune réclamation
-            </h3>
-            <p className="text-gray-600 mb-6">
-              Vous n'avez pas encore créé de réclamation
-            </p>
-            <Link
-              href="/dashboard/claims/create"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
-            >
-              <Plus size={20} />
-              Créer ma première réclamation
-            </Link>
-          </div>
+          <Card className="bg-white border border-gray-200 rounded-2xl shadow-md">
+            <CardContent className="p-12 text-center">
+              <div className="w-20 h-20 bg-gradient-to-br from-purple-100 to-pink-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <FileText size={40} className="text-purple-600" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                Aucune réclamation
+              </h3>
+              <p className="text-gray-600 mb-8 max-w-md mx-auto">
+                Vous n'avez pas encore créé de réclamation. Commencez par créer votre première réclamation.
+              </p>
+              <Link
+                href="/dashboard/claims/create"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg"
+              >
+                <Plus size={20} />
+                Créer ma première réclamation
+              </Link>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {claims.map((claim) => {
               const status = statusConfig[claim.status];
               const StatusIcon = status.icon;
@@ -128,38 +138,46 @@ export default function ClaimsPage() {
                 <Link
                   key={claim.id}
                   href={`/claims/${claim.id}`}
-                  className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition-shadow"
+                  className="block group"
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-xl font-semibold text-gray-900">
-                          {claim.title}
-                        </h3>
-                        <span
-                          className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${status.color}`}
-                        >
-                          <StatusIcon size={14} />
-                          {status.label}
-                        </span>
+                  <Card className="h-full bg-white border border-gray-200 rounded-2xl shadow-md hover:shadow-lg transition-all duration-200">
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-bold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
+                            {claim.title}
+                          </h3>
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${status.color} border`}
+                          >
+                            <StatusIcon size={12} />
+                            {status.label}
+                          </span>
+                        </div>
                       </div>
-                      <p className="text-gray-600 mb-4 line-clamp-2">
+                      <p className="text-gray-600 mb-4 line-clamp-2 text-sm">
                         {claim.description}
                       </p>
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <span>Créé le {date}</span>
+                      <div className="space-y-2 pt-4 border-t border-gray-100">
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                          <Clock size={14} />
+                          <span>Créé le {date}</span>
+                        </div>
                         {claim.filePaths && claim.filePaths.length > 0 && (
-                          <span className="flex items-center gap-1">
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
                             <FileText size={14} />
-                            {claim.filePaths.length} fichier(s)
-                          </span>
+                            <span>{claim.filePaths.length} fichier(s) attaché(s)</span>
+                          </div>
                         )}
                         {claim.reply && (
-                          <span className="text-blue-600">• Réponse disponible</span>
+                          <div className="flex items-center gap-2 text-xs text-green-600 font-medium">
+                            <CheckCircle size={14} />
+                            <span>Réponse disponible</span>
+                          </div>
                         )}
                       </div>
-                    </div>
-                  </div>
+                    </CardContent>
+                  </Card>
                 </Link>
               );
             })}

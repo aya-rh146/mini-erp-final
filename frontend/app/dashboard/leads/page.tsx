@@ -10,7 +10,7 @@ import { toast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Edit, Trash2, UserCheck, Loader2, X } from "lucide-react";
+import { Plus, Edit, Trash2, UserCheck, Loader2, X, TrendingUp } from "lucide-react";
 
 type Lead = {
   id: number;
@@ -178,10 +178,13 @@ export default function LeadsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
-        <div className="max-w-6xl mx-auto">
+      <div className="p-6 md:p-8">
+        <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-center h-64">
-            <Loader2 className="animate-spin text-gray-400" size={32} />
+            <div className="text-center">
+              <Loader2 className="animate-spin text-blue-600 mx-auto mb-4" size={48} />
+              <p className="text-gray-600 font-medium">Chargement...</p>
+            </div>
           </div>
         </div>
       </div>
@@ -191,16 +194,18 @@ export default function LeadsPage() {
   const operators = users.filter((u) => u.role === "operator" || u.role === "admin" || u.role === "supervisor");
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+    <div className="p-6 md:p-8 space-y-6 animate-fade-in">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Gestion des Leads</h1>
-            <p className="text-gray-600 mt-2">Gérez vos prospects et convertissez-les en clients</p>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mb-2">
+              Gestion des Leads
+            </h1>
+            <p className="text-gray-600">Gérez vos prospects et convertissez-les en clients</p>
           </div>
           <button
             onClick={() => handleOpenModal()}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl"
           >
             <Plus size={20} />
             Nouveau lead
@@ -208,38 +213,67 @@ export default function LeadsPage() {
         </div>
 
         {leads.length === 0 ? (
-          <Card>
+          <Card className="bg-white border border-gray-200 rounded-2xl shadow-md">
             <CardContent className="p-12 text-center">
-              <p className="text-gray-500">Aucun lead pour le moment</p>
+              <div className="w-20 h-20 bg-gradient-to-br from-green-100 to-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <TrendingUp size={40} className="text-green-600" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Aucun lead</h3>
+              <p className="text-gray-600 mb-8">Commencez par créer votre premier lead</p>
+              <button
+                onClick={() => handleOpenModal()}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg"
+              >
+                <Plus size={20} />
+                Créer mon premier lead
+              </button>
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {leads.map((lead) => (
-              <Card key={lead.id} className="hover:shadow-md transition-shadow">
-                <CardHeader>
+              <Card key={lead.id} className="bg-white border border-gray-200 rounded-2xl shadow-md hover:shadow-lg transition-all duration-200">
+                <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-gray-200 px-6 py-5 rounded-t-2xl">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        <CardTitle className="text-xl">{lead.name}</CardTitle>
-                        <Badge variant="outline">{lead.status}</Badge>
+                        <CardTitle className="text-lg font-bold text-gray-900">{lead.name}</CardTitle>
                       </div>
-                      <div className="space-y-1 text-sm text-gray-600">
-                        {lead.email && <p>📧 {lead.email}</p>}
-                        {lead.phone && <p>📞 {lead.phone}</p>}
-                        {lead.assignedTo && (
-                          <p>👤 Assigné à : {getAssignedUserName(lead.assignedTo) || "Inconnu"}</p>
-                        )}
-                        {lead.notes && <p className="mt-2 italic">💬 {lead.notes}</p>}
-                      </div>
+                      <Badge className="bg-green-600 text-white border-0 text-xs px-2.5 py-1 rounded-lg capitalize">{lead.status}</Badge>
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-2">
+                <CardContent className="p-6">
+                  <div className="space-y-3 mb-4">
+                    {lead.email && (
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <span className="text-gray-400">📧</span>
+                        <span className="truncate">{lead.email}</span>
+                      </div>
+                    )}
+                    {lead.phone && (
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <span className="text-gray-400">📞</span>
+                        <span>{lead.phone}</span>
+                      </div>
+                    )}
+                    {lead.assignedTo && (
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <span className="text-gray-400">👤</span>
+                        <span>Assigné à : {getAssignedUserName(lead.assignedTo) || "Inconnu"}</span>
+                      </div>
+                    )}
+                    {lead.notes && (
+                      <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                        <p className="text-sm text-gray-600 italic line-clamp-2">💬 {lead.notes}</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 pt-4 border-t border-gray-100">
                     <button
                       onClick={() => handleOpenModal(lead)}
-                      className="text-blue-600 hover:text-blue-900"
+                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Modifier"
                     >
                       <Edit size={18} />
                     </button>
@@ -247,14 +281,15 @@ export default function LeadsPage() {
                       <>
                         <button
                           onClick={() => handleConvert(lead.id)}
-                          className="text-green-600 hover:text-green-900"
+                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
                           title="Convertir en client"
                         >
                           <UserCheck size={18} />
                         </button>
                         <button
                           onClick={() => handleDelete(lead.id)}
-                          className="text-red-600 hover:text-red-900"
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Supprimer"
                         >
                           <Trash2 size={18} />
                         </button>
