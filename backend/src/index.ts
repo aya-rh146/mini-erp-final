@@ -1569,18 +1569,45 @@ app.get("/api/clients/:id/income", authenticate, requireSupervisor, async (c: an
       return c.json({ error: "Client non trouvé" }, 404);
     }
 
-    // Calculer le revenu (si table payments existe)
+    // Calculer le revenu depuis les produits assignés
     let totalIncome = "0.00";
+    let breakdown: any[] = [];
+    
     try {
       const result = await db.execute(
-        sql`SELECT COALESCE(SUM(amount), 0)::text as total FROM payments WHERE client_id = ${id}`
+        sql`SELECT p.id, p.name, p.type, p.price, cp.id as cp_id
+            FROM products p
+            INNER JOIN client_products cp ON p.id = cp.product_id
+            WHERE cp.client_id = ${id}`
       );
-      totalIncome = result.rows[0]?.total || "0.00";
-    } catch {
-      // Table payments n'existe pas encore
+      
+      breakdown = result.rows || [];
+      totalIncome = breakdown.reduce((sum: number, item: any) => {
+        return sum + (parseFloat(item.price) || 0);
+      }, 0).toFixed(2);
+    } catch (error: any) {
+      console.error("Error calculating income from products:", error);
+      // Fallback: essayer avec payments si disponible
+      try {
+        const result = await db.execute(
+          sql`SELECT COALESCE(SUM(amount), 0)::text as total FROM payments WHERE client_id = ${id}`
+        );
+        totalIncome = result.rows[0]?.total || "0.00";
+      } catch {
+        // Les deux méthodes ont échoué
+      }
     }
 
-    return c.json({ clientId: id, totalIncome });
+    return c.json({ 
+      clientId: id, 
+      totalIncome,
+      breakdown: breakdown.map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        type: item.type,
+        price: parseFloat(item.price) || 0,
+      }))
+    });
   } catch (error: any) {
     console.error("Error calculating income:", error);
     return c.json({ error: "Erreur serveur" }, 500);
