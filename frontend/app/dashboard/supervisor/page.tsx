@@ -192,7 +192,7 @@ export default function SupervisorDashboardPage() {
 
         {/* Opérateurs */}
         <Card className="bg-white border border-gray-200 rounded-2xl shadow-md">
-          <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200 px-6 py-5 rounded-t-2xl">
+          <CardHeader className="bg-white border-b border-gray-200 px-6 py-5 rounded-t-2xl">
             <CardTitle className="text-xl font-bold text-gray-900">
               Mes Opérateurs <span className="text-gray-500 font-normal">({overview.operators.length})</span>
             </CardTitle>
@@ -201,30 +201,65 @@ export default function SupervisorDashboardPage() {
             {overview.operators.length === 0 ? (
               <div className="text-center py-16">
                 <Users className="mx-auto text-gray-300 mb-4" size={48} />
-                <p className="text-gray-500 font-medium mb-1">Aucun opérateur assigné</p>
-                <p className="text-sm text-gray-400">Assignez des opérateurs depuis la page Utilisateurs</p>
+                <p className="text-gray-700 font-medium mb-1">Aucun opérateur assigné</p>
+                <p className="text-sm text-gray-500">Assignez des opérateurs depuis la page Utilisateurs</p>
               </div>
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
-                {overview.operators.map((op) => (
-                  <div
-                    key={op.id}
-                    className="flex items-center justify-between p-5 bg-white rounded-xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all duration-200"
-                  >
-                    <div className="flex items-center gap-4 flex-1 min-w-0">
-                      <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-base shadow-md flex-shrink-0">
-                        {(op.fullName || op.email)[0].toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-gray-900 text-base mb-1 truncate">{op.fullName || "Sans nom"}</p>
-                        <p className="text-sm text-gray-500 truncate">{op.email}</p>
-                      </div>
-                    </div>
-                    <Badge className="bg-blue-600 text-white border-0 text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm ml-3 flex-shrink-0">
-                      Opérateur
-                    </Badge>
-                  </div>
-                ))}
+                {overview.operators.map((op, index) => {
+                  // Alterner les couleurs comme les stats cards : bleu, vert, violet
+                  const colorSchemes = [
+                    {
+                      bg: "bg-gradient-to-br from-blue-50 to-blue-100",
+                      border: "border-blue-200",
+                      hover: "hover:border-blue-300",
+                      badge: "bg-blue-600",
+                      avatar: "from-blue-600 to-indigo-600",
+                      text: "text-blue-900",
+                    },
+                    {
+                      bg: "bg-gradient-to-br from-green-50 to-green-100",
+                      border: "border-green-200",
+                      hover: "hover:border-green-300",
+                      badge: "bg-green-600",
+                      avatar: "from-green-600 to-emerald-600",
+                      text: "text-green-900",
+                    },
+                    {
+                      bg: "bg-gradient-to-br from-purple-50 to-purple-100",
+                      border: "border-purple-200",
+                      hover: "hover:border-purple-300",
+                      badge: "bg-purple-600",
+                      avatar: "from-purple-600 to-pink-600",
+                      text: "text-purple-900",
+                    },
+                  ];
+                  const colors = colorSchemes[index % colorSchemes.length];
+
+                  return (
+                    <Card
+                      key={op.id}
+                      className={`${colors.bg} border ${colors.border} rounded-xl shadow-md ${colors.hover} hover:shadow-lg transition-all duration-200`}
+                    >
+                      <CardContent className="p-5">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-12 h-12 bg-gradient-to-br ${colors.avatar} rounded-full flex items-center justify-center text-white font-bold text-base shadow-md flex-shrink-0`}>
+                            {(op.fullName || op.email)[0].toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-gray-900 text-base mb-1 truncate">
+                              {op.fullName || "Sans nom"}
+                            </p>
+                            <p className="text-sm text-gray-700 truncate">{op.email}</p>
+                          </div>
+                          <Badge className={`${colors.badge} text-white border-0 text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm flex-shrink-0`}>
+                            Opérateur
+                          </Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </CardContent>
