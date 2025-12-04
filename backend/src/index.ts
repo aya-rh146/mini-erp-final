@@ -580,7 +580,7 @@ app.use("/uploads/*", serveStatic({ root: "./" }));
  * - Client : crée pour lui-même
  * - Admin/Supervisor : peut créer pour un client spécifique
  */
-app.post("/api/claims", authenticate, async (c: any) => {
+app.post("/api/claims", authenticate, requireClient, async (c: any) => {
   try {
     const user = c.get("user");
     const formData = await c.req.formData();
