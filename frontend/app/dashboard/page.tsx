@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Users, FileText, TrendingUp, Package, ArrowRight, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import ClientProducts from "@/components/client/ClientProducts";
 
 export default function DashboardHome() {
   const { user } = useAuth();
@@ -14,6 +15,7 @@ export default function DashboardHome() {
     claims: 0,
     products: 0,
   });
+  const [clientId, setClientId] = useState<string | null>(null);
 
   useEffect(() => {
     const loadStats = async () => {
@@ -34,7 +36,22 @@ export default function DashboardHome() {
         console.error("Error loading stats:", error);
       }
     };
-    if (user) loadStats();
+    
+    const loadClientId = async () => {
+      if (user?.role === "client") {
+        try {
+          const client = await api("/api/clients/me");
+          setClientId(client.id);
+        } catch (error) {
+          console.error("Error loading client ID:", error);
+        }
+      }
+    };
+    
+    if (user) {
+      loadStats();
+      loadClientId();
+    }
   }, [user]);
 
   const getGreeting = () => {
@@ -156,6 +173,14 @@ export default function DashboardHome() {
           <p className="text-orange-100 font-medium text-sm">Produits</p>
         </div>
       </div>
+
+      {/* Client Products Section */}
+      {user?.role === "client" && clientId && (
+        <div className="mt-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">Mes Produits & Services</h2>
+          <ClientProducts clientId={clientId} />
+        </div>
+      )}
       </div>
     </div>
   );

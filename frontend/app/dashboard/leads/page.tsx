@@ -11,6 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Edit, Trash2, UserCheck, Loader2, X, TrendingUp } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type Lead = {
   id: number;
@@ -27,7 +34,8 @@ type User = {
   id: number;
   email: string;
   fullName: string | null;
-  role: string;
+  role: 'admin' | 'supervisor' | 'operator' | 'client';
+  supervisorId?: number;
 };
 
 export default function LeadsPage() {
@@ -54,41 +62,55 @@ export default function LeadsPage() {
     try {
       setLoading(true);
       const [leadsData, usersData] = await Promise.all([
-        api("/api/leads"),
-        api("/api/users").catch(() => []),
+        api("/api/leads").catch((error) => {
+          console.error("Erreur lors du chargement des leads:", error);
+          toast(error.message || "Erreur lors du chargement des leads", "error");
+          return [];
+        }),
+        api("/api/users").catch(() => {
+          console.warn("Impossible de charger la liste des utilisateurs");
+          return [];
+        }),
       ]);
-      setLeads(leadsData);
-      setUsers(usersData);
+
+      // S'assurer que leadsData est un tableau avant de le définir
+      setLeads(Array.isArray(leadsData) ? leadsData : []);
+
+      // Mettre à jour la liste des utilisateurs
+      setUsers(Array.isArray(usersData) ? usersData : []);
+
+      // Vérifier si des données ont été chargées
+      if (Array.isArray(leadsData) && leadsData.length === 0) {
+        console.log("Aucun lead trouvé");
+      }
     } catch (error: any) {
-      toast(error.message || "Erreur lors du chargement", "error");
+      console.error("Erreur inattendue dans loadData:", error);
+      toast(error.message || "Erreur inattendue lors du chargement des données", "error");
+      setLeads([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleOpenModal = (leadToEdit?: Lead) => {
-    if (leadToEdit) {
-      setEditingLead(leadToEdit);
-      setFormData({
-        name: leadToEdit.name,
-        email: leadToEdit.email || "",
-        phone: leadToEdit.phone || "",
-        status: leadToEdit.status,
-        assignedTo: leadToEdit.assignedTo?.toString() || "",
-        notes: leadToEdit.notes || "",
-      });
-    } else {
-      setEditingLead(null);
-      setFormData({
-        name: "",
-        email: "",
-        phone: "",
-        status: "new",
-        assignedTo: "",
-        notes: "",
-      });
-    }
+  const handleOpenModal = (leadToEdit: Lead | null = null) => {
+    setEditingLead(leadToEdit);
     setShowModal(true);
+  };
+
+  const handleAssign = async (leadId: number, assignedTo: number | null) => {
+    try {
+      await api(`/api/leads/${leadId}/assign`, {
+        method: "PATCH",
+        body: JSON.stringify({ assignedTo }),
+      });
+
+      // Recharger les données
+      loadData();
+      toast("Lead assigné avec succès");
+    } catch (error: any) {
+      console.error("Erreur lors de l'assignation:", error);
+      toast(error.message || "Erreur lors de l'assignation", "error");
+    }
   };
 
   const handleCloseModal = () => {
@@ -191,7 +213,19 @@ export default function LeadsPage() {
     );
   }
 
-  const operators = users.filter((u) => u.role === "operator" || u.role === "admin" || u.role === "supervisor");
+  // Filtrer les opérateurs en fonction du rôle de l'utilisateur
+  const getFilteredOperators = () => {
+    if (user?.role === "supervisor") {
+      // Pour les superviseurs, ne montrer que leurs opérateurs
+      return users.filter((u) => u.role === "operator" && u.supervisorId === user?.id);
+    } else if (user?.role === "admin") {
+      // Pour les admins, montrer tous les opérateurs et superviseurs
+      return users.filter((u) => u.role === "operator" || u.role === "supervisor");
+    }
+    return [];
+  };
+
+  const operators = getFilteredOperators();
 
   return (
     <div className="p-6 md:p-8 space-y-6 animate-fade-in">
@@ -203,13 +237,15 @@ export default function LeadsPage() {
             </h1>
             <p className="text-gray-600">Gérez vos prospects et convertissez-les en clients</p>
           </div>
-          <button
-            onClick={() => handleOpenModal()}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl"
-          >
-            <Plus size={20} />
-            Nouveau lead
-          </button>
+          {(user?.role === "admin" || user?.role === "operator") && (
+            <button
+              onClick={() => handleOpenModal()}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+            >
+              <Plus size={20} />
+              Nouveau lead
+            </button>
+          )}
         </div>
 
         {leads.length === 0 ? (
@@ -219,14 +255,20 @@ export default function LeadsPage() {
                 <TrendingUp size={40} className="text-green-600" />
               </div>
               <h3 className="text-2xl font-bold text-gray-900 mb-2">Aucun lead</h3>
-              <p className="text-gray-600 mb-8">Commencez par créer votre premier lead</p>
-              <button
-                onClick={() => handleOpenModal()}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg"
-              >
-                <Plus size={20} />
-                Créer mon premier lead
-              </button>
+              <p className="text-gray-600 mb-8">
+                {user?.role === "supervisor"
+                  ? "Aucun lead disponible pour le moment"
+                  : "Commencez par créer votre premier lead"}
+              </p>
+              {(user?.role === "admin" || user?.role === "operator") && (
+                <button
+                  onClick={() => handleOpenModal()}
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg"
+                >
+                  <Plus size={20} />
+                  Créer mon premier lead
+                </button>
+              )}
             </CardContent>
           </Card>
         ) : (
@@ -270,6 +312,7 @@ export default function LeadsPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 pt-4 border-t border-gray-100">
+                    {/* Bouton Modifier - Visible pour tous les rôles ayant accès au lead */}
                     <button
                       onClick={() => handleOpenModal(lead)}
                       className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -277,24 +320,53 @@ export default function LeadsPage() {
                     >
                       <Edit size={18} />
                     </button>
-                    {(user?.role === "admin" || user?.role === "supervisor") && (
-                      <>
-                        <button
-                          onClick={() => handleConvert(lead.id)}
-                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                          title="Convertir en client"
-                        >
-                          <UserCheck size={18} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(lead.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Supprimer"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </>
+
+                    {/* Bouton Convertir - Uniquement pour les admins */}
+                    {user?.role === "admin" && (
+                      <button
+                        onClick={() => handleConvert(lead.id)}
+                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                        title="Convertir en client"
+                      >
+                        <UserCheck size={18} />
+                      </button>
                     )}
+
+                    {/* Bouton Supprimer - Admin et superviseurs */}
+                    {(user?.role === "admin" || user?.role === "supervisor") && (
+                      <button
+                        onClick={() => handleDelete(lead.id)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Supprimer"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="pt-4">
+                    <Select
+                      value={lead.assignedTo?.toString() || ""}
+                      onValueChange={(value) => handleAssign(lead.id, value ? parseInt(value) : null)}
+                      disabled={user?.role !== "admin" && user?.role !== "supervisor"}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Non assigné" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Non assigné</SelectItem>
+                        {operators.length > 0 ? (
+                          operators.map((operator) => (
+                            <SelectItem key={operator.id} value={operator.id.toString()}>
+                              {operator.fullName || operator.email}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Aucun opérateur disponible
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </CardContent>
               </Card>

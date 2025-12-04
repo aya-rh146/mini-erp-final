@@ -11,6 +11,7 @@ import {
   UserCheck,
   BarChart3,
   Plus,
+  Package,
 } from "lucide-react";
 
 export default function DashboardSidebar() {
@@ -56,6 +57,12 @@ export default function DashboardSidebar() {
       label: "Dashboard Opérateur",
       icon: UserCheck,
       roles: ["admin", "supervisor", "operator"],
+    },
+    {
+      href: "/dashboard/products",
+      label: "Produits & Services",
+      icon: Package,
+      roles: ["admin"],
     },
     {
       href: "/dashboard/analytics",

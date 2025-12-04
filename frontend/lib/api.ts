@@ -1,45 +1,66 @@
 // frontend/lib/api.ts
-const API_URL = "http://localhost:3002";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3002";
+
+const DEFAULT_TIMEOUT = process.env.NODE_ENV === "development" ? 90_000 : 15_000;
+
+const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit = {},
+  timeout = DEFAULT_TIMEOUT
+) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      credentials: "include",
+    });
+    clearTimeout(timer);
+    return response;
+  } catch (err: any) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") {
+      throw new Error("Request timed out");
+    }
+    throw err;
+  }
+};
 
 export const api = async (endpoint: string, options: RequestInit = {}) => {
+  const url = `${API_URL.replace(/\/+$/, "")}${endpoint.startsWith("/") ? endpoint : "/" + endpoint}`;
+
+  const isFormData = options.body instanceof FormData;
+  const headers = new Headers(options.headers);
+
+  if (!isFormData && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  headers.set("Accept", "application/json");
+
+  const response = await fetchWithTimeout(url, {
+    ...options,
+    method: options.method || "GET",
+    headers,
+  });
+
+  if (!response.ok) {
+    let message = `Error ${response.status}`;
+    try {
+      const data = await response.json();
+      message = data.message || data.error || message;
+    } catch {}
+    throw new Error(message);
+  }
+
+  if (response.status === 204 || response.status === 201) return {};
+
+  const text = await response.text();
   try {
-    // Ne pas ajouter Content-Type pour FormData
-    const isFormData = options.body instanceof FormData;
-    const headers: HeadersInit = {
-      ...options.headers,
-    };
-    
-    if (!isFormData) {
-      headers["Content-Type"] = "application/json";
-    }
-
-    const res = await fetch(`${API_URL}${endpoint}`, {
-      ...options,
-      credentials: "include", // important ba9i cookies yemchiw
-      headers,
-    });
-
-    if (!res.ok) {
-      const contentType = res.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        const error = await res.json();
-        // Inclure le hint si disponible pour des messages d'erreur plus utiles
-        const errorMessage = error.hint 
-          ? `${error.error || "Erreur serveur"}\n\n💡 ${error.hint}`
-          : error.error || "Erreur serveur";
-        throw new Error(errorMessage);
-      } else {
-        const text = await res.text();
-        throw new Error(`Erreur serveur: ${res.status} ${res.statusText}`);
-      }
-    }
-
-    return res.json();
-  } catch (error: any) {
-    // Gérer les erreurs réseau (Failed to fetch, etc.)
-    if (error instanceof TypeError && error.message.includes("fetch")) {
-      throw new Error("Impossible de se connecter au serveur. Vérifiez que le backend est démarré sur le port 3002.");
-    }
-    throw error;
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return text;
   }
 };

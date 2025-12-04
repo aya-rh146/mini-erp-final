@@ -3,9 +3,13 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
-import { toast } from "@/components/ui/toast";
-import { ArrowLeft, FileText, Clock, CheckCircle, AlertCircle, X, Send, User } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { ArrowLeft, FileText, Clock, CheckCircle, AlertCircle, X, Send, User, MessageSquare } from "lucide-react";
 import Link from "next/link";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 type Claim = {
   id: number;
@@ -43,18 +47,31 @@ const statusConfig = {
   },
 };
 
+interface Comment {
+  id: number;
+  authorId: number | null;
+  role: string;
+  content: string;
+  visibleToClient: boolean;
+  createdAt: string;
+}
+
 export default function ClaimDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const { toast } = useToast();
   const [claim, setClaim] = useState<Claim | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [replyText, setReplyText] = useState("");
+  const [commentText, setCommentText] = useState("");
   const [statusValue, setStatusValue] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const canManage = user?.role && ["admin", "supervisor", "operator"].includes(user.role);
   const canAssign = user?.role === "supervisor" || user?.role === "admin";
+  const canComment = canManage;
 
   useEffect(() => {
     if (params.id) {
@@ -69,27 +86,48 @@ export default function ClaimDetailPage() {
       setClaim(data);
       setStatusValue(data.status);
       setReplyText(data.reply || "");
+      
+      // Load comments
+      if (canComment) {
+        try {
+          const commentsData = await api(`/api/claims/${params.id}/comments`);
+          setComments(commentsData);
+        } catch (error) {
+          console.error("Error loading comments:", error);
+        }
+      }
     } catch (error: any) {
-      toast(error.message || "Erreur lors du chargement", "error");
+      toast({
+        title: "Erreur",
+        description: error.message || "Erreur lors du chargement",
+        variant: "destructive",
+      });
       router.push("/claims");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleStatusChange = async () => {
-    if (!statusValue || statusValue === claim?.status) return;
+  const handleStatusChange = async (newStatus: string) => {
+    if (!newStatus || newStatus === claim?.status) return;
 
     try {
       setIsSubmitting(true);
       await api(`/api/claims/${params.id}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status: statusValue }),
+        body: JSON.stringify({ status: newStatus }),
       });
-      toast("Statut mis à jour avec succès", "success");
+      toast({
+        title: "Succès",
+        description: `Statut changé en "${statusConfig[newStatus]?.label}"`,
+      });
       loadClaim();
     } catch (error: any) {
-      toast(error.message || "Erreur lors de la mise à jour", "error");
+      toast({
+        title: "Erreur",
+        description: error.message || "Erreur lors de la mise à jour",
+        variant: "destructive",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -97,7 +135,11 @@ export default function ClaimDetailPage() {
 
   const handleReplySubmit = async () => {
     if (!replyText.trim()) {
-      toast("La réponse ne peut pas être vide", "error");
+      toast({
+        title: "Erreur",
+        description: "La réponse ne peut pas être vide",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -107,10 +149,53 @@ export default function ClaimDetailPage() {
         method: "PATCH",
         body: JSON.stringify({ reply: replyText }),
       });
-      toast("Réponse ajoutée avec succès", "success");
+      toast({
+        title: "Succès",
+        description: "Réponse ajoutée avec succès",
+      });
       loadClaim();
     } catch (error: any) {
-      toast(error.message || "Erreur lors de l'envoi", "error");
+      toast({
+        title: "Erreur",
+        description: error.message || "Erreur lors de l'envoi",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCommentSubmit = async () => {
+    if (!commentText.trim()) {
+      toast({
+        title: "Erreur",
+        description: "Le commentaire ne peut pas être vide",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await api(`/api/claims/${params.id}/comments`, {
+        method: "POST",
+        body: JSON.stringify({ 
+          content: commentText,
+          visibleToClient: false,
+        }),
+      });
+      toast({
+        title: "Succès",
+        description: "Commentaire ajouté avec succès",
+      });
+      setCommentText("");
+      loadClaim();
+    } catch (error: any) {
+      toast({
+        title: "Erreur",
+        description: error.message || "Erreur lors de l'envoi",
+        variant: "destructive",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -209,57 +294,124 @@ export default function ClaimDetailPage() {
 
           {/* Management Section (Admin/Supervisor/Operator) */}
           {canManage && (
-            <div className="border-t pt-6 space-y-4">
+            <div className="border-t pt-6 space-y-6">
               <h2 className="text-lg font-semibold text-gray-900">Gestion de la réclamation</h2>
 
-              {/* Status Change */}
+              {/* Status Workflow */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Modifier le statut
+                <label className="block text-sm font-medium text-gray-700 mb-3">
+                  Workflow de statut
                 </label>
-                <div className="flex gap-2">
-                  <select
-                    value={statusValue}
-                    onChange={(e) => setStatusValue(e.target.value)}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    disabled={isSubmitting}
-                  >
-                    <option value="submitted">Soumis</option>
-                    <option value="in_review">En cours</option>
-                    <option value="resolved">Résolu</option>
-                    <option value="rejected">Rejeté</option>
-                  </select>
-                  <button
-                    onClick={handleStatusChange}
-                    disabled={isSubmitting || statusValue === claim.status}
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Mettre à jour
-                  </button>
+                <div className="flex flex-wrap gap-2">
+                  {claim.status === "submitted" && (
+                    <Button
+                      onClick={() => handleStatusChange("in_review")}
+                      disabled={isSubmitting}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <AlertCircle className="mr-2 h-4 w-4" />
+                      Passer en "En cours"
+                    </Button>
+                  )}
+                  {claim.status === "in_review" && (
+                    <>
+                      <Button
+                        onClick={() => handleStatusChange("resolved")}
+                        disabled={isSubmitting}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Résoudre
+                      </Button>
+                      <Button
+                        onClick={() => handleStatusChange("rejected")}
+                        disabled={isSubmitting}
+                        variant="destructive"
+                      >
+                        <X className="mr-2 h-4 w-4" />
+                        Rejeter
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
 
               {/* Reply */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Ajouter une réponse
+                  Réponse officielle (visible par le client)
                 </label>
-                <textarea
+                <Textarea
                   value={replyText}
                   onChange={(e) => setReplyText(e.target.value)}
-                  placeholder="Écrivez votre réponse ici..."
+                  placeholder="Écrivez votre réponse officielle ici..."
                   rows={4}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
                   disabled={isSubmitting}
                 />
-                <button
+                <Button
                   onClick={handleReplySubmit}
                   disabled={isSubmitting || !replyText.trim()}
-                  className="mt-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="mt-2 bg-green-600 hover:bg-green-700"
                 >
-                  <Send size={16} />
+                  <Send className="mr-2 h-4 w-4" />
                   Envoyer la réponse
-                </button>
+                </Button>
+              </div>
+
+              {/* Comments Section */}
+              <div className="border-t pt-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <MessageSquare className="h-5 w-5 text-gray-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">Commentaires internes</h3>
+                </div>
+
+                {/* Comments List */}
+                <div className="space-y-3 mb-4 max-h-64 overflow-y-auto">
+                  {comments.length === 0 ? (
+                    <p className="text-sm text-gray-500">Aucun commentaire</p>
+                  ) : (
+                    comments.map((comment) => (
+                      <Card key={comment.id} className="bg-gray-50">
+                        <CardContent className="p-3">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <User className="h-4 w-4 text-gray-500" />
+                              <Badge variant="outline">{comment.role}</Badge>
+                              {comment.visibleToClient && (
+                                <Badge variant="secondary" className="text-xs">Visible client</Badge>
+                              )}
+                            </div>
+                            <span className="text-xs text-gray-500">
+                              {new Date(comment.createdAt).toLocaleString("fr-FR")}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-700">{comment.content}</p>
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
+                </div>
+
+                {/* Add Comment */}
+                <div>
+                  <Textarea
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    placeholder="Ajouter un commentaire interne..."
+                    rows={3}
+                    disabled={isSubmitting}
+                    className="mb-2"
+                  />
+                  <Button
+                    onClick={handleCommentSubmit}
+                    disabled={isSubmitting || !commentText.trim()}
+                    variant="outline"
+                    size="sm"
+                  >
+                    <Send className="mr-2 h-4 w-4" />
+                    Ajouter un commentaire
+                  </Button>
+                </div>
               </div>
             </div>
           )}

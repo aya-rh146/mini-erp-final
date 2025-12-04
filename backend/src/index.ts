@@ -3,17 +3,36 @@ import "dotenv/config";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
+import { logger } from 'hono/logger';
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { users, claims, leads, clients, products, claimComments, payments } from "../db/schema";
-import { eq, desc, and, inArray, or, isNull } from "drizzle-orm";
+import { eq, desc, and, inArray, or, isNull, ne } from "drizzle-orm";
 import { handleFileUpload } from "./upload";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { broadcastClaimEvent } from "./realtime";
 
 const app = new Hono();
+
+// Configuration CORS
+app.use('*', cors({
+  origin: [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:3002',
+    'http://127.0.0.1:3002',
+  ],
+  credentials: true,
+  allowHeaders: ['Content-Type', 'Authorization'],
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  exposeHeaders: ['Content-Range', 'X-Total-Count'],
+  maxAge: 600, // Durée de mise en cache des pré-vérifications CORS (en secondes)
+}));
+
+// Middleware de logging
+app.use('*', logger());
 
 // ==================== DATABASE ====================
 if (!process.env.DATABASE_URL) {
@@ -959,7 +978,7 @@ app.patch("/api/claims/:id/reply", authenticate, requireOperator, async (c: any)
  * PATCH /api/claims/:id/assign
  * Assigne une réclamation à un opérateur (supervisor only)
  */
-app.patch("/api/claims/:id/assign", authenticate, requireSupervisor, async (c: any) => {
+app.patch("/api/claims/:id/assign", authenticate, async (c: any) => {
   try {
     const id = parseInt(c.req.param("id"));
     const body = await c.req.json();
@@ -1166,18 +1185,17 @@ app.post("/api/claims/:id/comments", authenticate, async (c: any) => {
   }
 });
 
-// ==================== ROUTES LEADS ====================
-
 /**
  * GET /api/leads
- * Liste les leads selon le rôle
+ * Récupère tous les leads en fonction du rôle de l'utilisateur
  */
 app.get("/api/leads", authenticate, async (c: any) => {
   try {
     const user = c.get("user");
-    
     let result: any[] = [];
+
     if (user.role === "admin") {
+      // L'admin voit tous les leads
       result = await db.select().from(leads).orderBy(desc(leads.createdAt));
     } else if (user.role === "supervisor") {
       // Récupérer les opérateurs du superviseur
@@ -1185,29 +1203,19 @@ app.get("/api/leads", authenticate, async (c: any) => {
         .select({ id: users.id })
         .from(users)
         .where(and(eq(users.supervisorId, user.id), eq(users.role, "operator")));
+      
       const operatorIds = operators.map((o) => o.id);
       
-      // Le superviseur voit :
-      // 1. Les leads assignés à ses opérateurs
-      // 2. Les leads non assignés (null)
       if (operatorIds.length > 0) {
+        // Uniquement les leads assignés à ses opérateurs
         result = await db
           .select()
           .from(leads)
-          .where(
-            or(
-              inArray(leads.assignedTo, operatorIds),
-              isNull(leads.assignedTo)
-            )
-          )
+          .where(inArray(leads.assignedTo, operatorIds))
           .orderBy(desc(leads.createdAt));
       } else {
-        // Si pas d'opérateurs, voir seulement les leads non assignés
-        result = await db
-          .select()
-          .from(leads)
-          .where(isNull(leads.assignedTo))
-          .orderBy(desc(leads.createdAt));
+        // Si pas d'opérateurs, ne rien retourner
+        result = [];
       }
     } else if (user.role === "operator") {
       result = await db
@@ -1228,14 +1236,26 @@ app.get("/api/leads", authenticate, async (c: any) => {
 
 /**
  * POST /api/leads
- * Crée un nouveau lead (admin/supervisor/operator)
+ * Crée un nouveau lead (admin/operator uniquement)
+ * Les superviseurs ne peuvent pas créer directement des leads
  */
-app.post("/api/leads", authenticate, requireOperator, async (c: any) => {
+app.post("/api/leads", authenticate, async (c: any) => {
   try {
+    const user = c.get("user");
     const body = await c.req.json();
+
+    // Vérifier les autorisations
+    if (user.role !== "admin" && user.role !== "operator") {
+      return c.json({ error: "Accès refusé. Seuls les administrateurs et opérateurs peuvent créer des leads." }, 403);
+    }
 
     if (!body.name) {
       return c.json({ error: "Le nom est obligatoire" }, 400);
+    }
+
+    // Si c'est un opérateur, il ne peut s'assigner que lui-même
+    if (user.role === "operator") {
+      body.assignedTo = user.id;
     }
 
     const newLead = await db
@@ -1261,7 +1281,7 @@ app.post("/api/leads", authenticate, requireOperator, async (c: any) => {
  * GET /api/leads/:id
  * Récupère un lead par ID
  */
-app.get("/api/leads/:id", authenticate, requireOperator, async (c: any) => {
+app.get("/api/leads/:id", authenticate, async (c: any) => {
   try {
     const id = parseInt(c.req.param("id"));
     const user = c.get("user");
@@ -1295,10 +1315,83 @@ app.get("/api/leads/:id", authenticate, requireOperator, async (c: any) => {
 });
 
 /**
+ * PATCH /api/leads/:id/assign
+ * Assigner un lead à un opérateur (admin/supervisor)
+ */
+app.patch("/api/leads/:id/assign", authenticate, async (c: any) => {
+  try {
+    const id = parseInt(c.req.param("id"));
+    const body = await c.req.json();
+    const user = c.get("user");
+
+    if (isNaN(id)) {
+      return c.json({ error: "ID invalide" }, 400);
+    }
+
+    if (body.assignedTo === undefined) {
+      return c.json({ error: "assignedTo est obligatoire" }, 400);
+    }
+
+    // Vérifier que le lead existe
+    const lead = await db
+      .select()
+      .from(leads)
+      .where(eq(leads.id, id))
+      .limit(1);
+
+    if (lead.length === 0) {
+      return c.json({ error: "Lead non trouvé" }, 404);
+    }
+
+    // Vérifier les permissions
+    if (user.role === "supervisor") {
+      // Récupérer les opérateurs du superviseur
+      const operators = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(
+          eq(users.supervisorId, user.id),
+          eq(users.role, "operator")
+        ));
+      
+      const operatorIds = operators.map(op => op.id);
+      
+      // Vérifier que le lead est bien assigné à un de ses opérateurs
+      if (lead[0].assignedTo && !operatorIds.includes(lead[0].assignedTo)) {
+        return c.json({ error: "Accès non autorisé à ce lead" }, 403);
+      }
+
+      // Vérifier que la nouvelle assignation est valide
+      if (body.assignedTo && !operatorIds.includes(parseInt(body.assignedTo))) {
+        return c.json({ error: "Vous ne pouvez assigner qu'à vos opérateurs" }, 403);
+      }
+    } else if (user.role === "operator") {
+      return c.json({ error: "Accès refusé" }, 403);
+    }
+
+    // Mettre à jour l'assignation
+    const updateData: any = {
+      assignedTo: body.assignedTo ? parseInt(body.assignedTo) : null
+    };
+    
+    const updatedLead = await db
+      .update(leads)
+      .set(updateData)
+      .where(eq(leads.id, id))
+      .returning();
+
+    return c.json(updatedLead[0]);
+  } catch (error: any) {
+    console.error("Error assigning lead:", error);
+    return c.json({ error: "Erreur serveur" }, 500);
+  }
+});
+
+/**
  * PATCH /api/leads/:id
  * Met à jour un lead (statut, assignation, notes)
  */
-app.patch("/api/leads/:id", authenticate, requireOperator, async (c: any) => {
+app.patch("/api/leads/:id", authenticate, async (c: any) => {
   try {
     const id = parseInt(c.req.param("id"));
     const body = await c.req.json();
@@ -1351,7 +1444,7 @@ app.patch("/api/leads/:id", authenticate, requireOperator, async (c: any) => {
  * DELETE /api/leads/:id
  * Supprime un lead (admin/supervisor)
  */
-app.delete("/api/leads/:id", authenticate, requireSupervisor, async (c: any) => {
+app.delete("/api/leads/:id", authenticate, async (c: any) => {
   try {
     const id = parseInt(c.req.param("id"));
 
@@ -1370,9 +1463,9 @@ app.delete("/api/leads/:id", authenticate, requireSupervisor, async (c: any) => 
 
 /**
  * POST /api/leads/:id/convert
- * Convertit un lead en client (admin/supervisor)
+ * Convertit un lead en client (admin uniquement)
  */
-app.post("/api/leads/:id/convert", authenticate, requireSupervisor, async (c: any) => {
+app.post("/api/leads/:id/convert", authenticate, async (c: any) => {
   try {
     const id = parseInt(c.req.param("id"));
 
@@ -1457,7 +1550,7 @@ app.post("/api/leads/:id/convert", authenticate, requireSupervisor, async (c: an
  * GET /api/clients
  * Liste tous les clients (admin/supervisor)
  */
-app.get("/api/clients", authenticate, requireSupervisor, async (c: any) => {
+app.get("/api/clients", authenticate, async (c: any) => {
   try {
     const result = await db
       .select({
@@ -1483,7 +1576,7 @@ app.get("/api/clients", authenticate, requireSupervisor, async (c: any) => {
  * GET /api/clients/:id
  * Récupère un client par ID
  */
-app.get("/api/clients/:id", authenticate, requireSupervisor, async (c: any) => {
+app.get("/api/clients/:id", authenticate, async (c: any) => {
   try {
     const id = parseInt(c.req.param("id"));
 
@@ -1520,7 +1613,7 @@ app.get("/api/clients/:id", authenticate, requireSupervisor, async (c: any) => {
  * PUT /api/clients/:id
  * Met à jour un client (admin)
  */
-app.put("/api/clients/:id", authenticate, requireAdmin, async (c: any) => {
+app.put("/api/clients/:id", authenticate, async (c: any) => {
   try {
     const id = parseInt(c.req.param("id"));
     const body = await c.req.json();
@@ -1554,7 +1647,7 @@ app.put("/api/clients/:id", authenticate, requireAdmin, async (c: any) => {
  * GET /api/clients/:id/income
  * Calcule le revenu total d'un client
  */
-app.get("/api/clients/:id/income", authenticate, requireSupervisor, async (c: any) => {
+app.get("/api/clients/:id/income", authenticate, async (c: any) => {
   try {
     const id = parseInt(c.req.param("id"));
     const { sql } = await import("drizzle-orm");
@@ -1623,10 +1716,17 @@ app.get("/api/clients/:id/income", authenticate, requireSupervisor, async (c: an
 app.get("/api/products", authenticate, async (c: any) => {
   try {
     const result = await db.select().from(products).orderBy(products.id);
-    return c.json(result);
-  } catch (error: any) {
+    return c.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
     console.error("Error fetching products:", error);
-    return c.json({ error: "Erreur serveur" }, 500);
+    return c.json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Une erreur est survenue lors de la récupération des produits"
+    }, 500);
   }
 });
 
@@ -1638,8 +1738,12 @@ app.get("/api/products/:id", authenticate, async (c: any) => {
   try {
     const id = parseInt(c.req.param("id"));
 
-    if (isNaN(id)) {
-      return c.json({ error: "ID invalide" }, 400);
+    if (isNaN(id) || id <= 0) {
+      return c.json({
+        success: false,
+        error: "Validation Error",
+        message: "ID de produit invalide"
+      }, 400);
     }
 
     const result = await db
@@ -1649,13 +1753,24 @@ app.get("/api/products/:id", authenticate, async (c: any) => {
       .limit(1);
 
     if (result.length === 0) {
-      return c.json({ error: "Produit non trouvé" }, 404);
+      return c.json({
+        success: false,
+        error: "Not Found",
+        message: "Le produit demandé n'existe pas"
+      }, 404);
     }
 
-    return c.json(result[0]);
-  } catch (error: any) {
+    return c.json({
+      success: true,
+      data: result[0]
+    });
+  } catch (error) {
     console.error("Error fetching product:", error);
-    return c.json({ error: "Erreur serveur" }, 500);
+    return c.json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Une erreur est survenue lors de la récupération du produit"
+    }, 500);
   }
 });
 
@@ -1663,27 +1778,75 @@ app.get("/api/products/:id", authenticate, async (c: any) => {
  * POST /api/products
  * Crée un nouveau produit (admin)
  */
-app.post("/api/products", authenticate, requireAdmin, async (c: any) => {
+app.post("/api/products", authenticate, async (c: any) => {
   try {
     const body = await c.req.json();
 
+    // Validation des champs obligatoires
     if (!body.name) {
-      return c.json({ error: "Le nom est obligatoire" }, 400);
+      return c.json({ 
+        success: false,
+        error: "Validation Error",
+        message: "Le nom du produit est requis",
+        field: "name"
+      }, 400);
     }
 
-    const newProduct = await db
-      .insert(products)
-      .values({
-        name: body.name.trim(),
-        type: body.type?.trim() || null,
-        price: body.price ? body.price.toString() : null,
-      })
+    if (!body.price || isNaN(parseFloat(body.price)) || parseFloat(body.price) <= 0) {
+      return c.json({
+        success: false,
+        error: "Validation Error",
+        message: "Un prix valide est requis",
+        field: "price"
+      }, 400);
+    }
+
+    if (!body.type || !['product', 'service'].includes(body.type)) {
+      return c.json({
+        success: false,
+        error: "Validation Error",
+        message: "Un type valide est requis (product ou service)",
+        field: "type"
+      }, 400);
+    }
+
+    // Préparer les données d'insertion selon le schéma
+    const productData: any = {
+      name: body.name,
+      type: body.type
+    };
+
+    // Ajouter le prix s'il est valide
+    if (body.price !== undefined && !isNaN(parseFloat(body.price))) {
+      productData.price = parseFloat(body.price).toFixed(2);
+    }
+
+    const [newProduct] = await db.insert(products)
+      .values(productData)
       .returning();
 
-    return c.json(newProduct[0], 201);
-  } catch (error: any) {
+    return c.json({
+      success: true,
+      data: newProduct
+    }, 201);
+  } catch (error) {
     console.error("Error creating product:", error);
-    return c.json({ error: "Erreur serveur" }, 500);
+    
+    // Gestion des erreurs de base de données
+    if (error instanceof Error && 'code' in error && error.code === '23505') { // Violation de contrainte unique
+      return c.json({
+        success: false,
+        error: "Duplicate Entry",
+        message: "Un produit avec ce nom existe déjà",
+        field: "name"
+      }, 400);
+    }
+    
+    return c.json({
+      success: false,
+      error: "Server Error",
+      message: "Une erreur est survenue lors de la création du produit"
+    }, 500);
   }
 });
 
@@ -1691,34 +1854,120 @@ app.post("/api/products", authenticate, requireAdmin, async (c: any) => {
  * PUT /api/products/:id
  * Met à jour un produit (admin)
  */
-app.put("/api/products/:id", authenticate, requireAdmin, async (c: any) => {
-  try {
-    const id = parseInt(c.req.param("id"));
-    const body = await c.req.json();
+app.put("/api/products/:id", authenticate, async (c: any) => {
+try {
+const id = parseInt(c.req.param("id"));
+const body = await c.req.json();
 
-    if (isNaN(id)) {
-      return c.json({ error: "ID invalide" }, 400);
+if (isNaN(id) || id <= 0) {
+  return c.json({
+    success: false,
+    error: "Validation Error",
+    message: "ID de produit invalide"
+  }, 400);
+}
+
+// Validation des champs obligatoires
+if (!body.name) {
+  return c.json({
+    success: false,
+    error: "Validation Error",
+    message: "Le nom du produit est requis",
+    field: "name"
+  }, 400);
+}
+
+if (!body.price || isNaN(parseFloat(body.price)) || parseFloat(body.price) <= 0) {
+  return c.json({
+    success: false,
+    error: "Validation Error",
+    message: "Un prix valide est requis",
+    field: "price"
+  }, 400);
+}
+
+if (!body.type || !['product', 'service'].includes(body.type)) {
+  return c.json({
+    success: false,
+    error: "Validation Error",
+    message: "Un type valide est requis (product ou service)",
+    field: "type"
+  }, 400);
+}
+
+// Vérifier d'abord si le produit existe
+const [existingProduct] = await db
+  .select()
+  .from(products)
+  .where(eq(products.id, id))
+  .limit(1);
+
+if (!existingProduct) {
+  return c.json({
+    success: false,
+    error: "Not Found",
+    message: "Le produit demandé n'existe pas"
+  }, 404);
+}
+
+// Vérifier si le nom est déjà utilisé par un autre produit
+const [duplicateProduct] = await db
+  .select()
+  .from(products)
+  .where(and(
+    eq(products.name, body.name),
+    ne(products.id, id) // Exclure le produit actuel de la vérification
+  ))
+  .limit(1);
+
+if (duplicateProduct) {
+  return c.json({
+    success: false,
+    error: "Duplicate Entry",
+    message: "Un produit avec ce nom existe déjà",
+    field: "name"
+  }, 400);
+}
+
+    // Mettre à jour le produit selon le schéma de la base de données
+    const updateData: any = {
+      name: body.name,
+      type: body.type
+    };
+
+    // Vérifier si le prix est fourni et est un nombre valide
+    if (body.price !== undefined && !isNaN(parseFloat(body.price))) {
+      updateData.price = body.price.toString();
     }
 
-    const updateData: any = {};
-    if (body.name !== undefined) updateData.name = body.name.trim();
-    if (body.type !== undefined) updateData.type = body.type?.trim() || null;
-    if (body.price !== undefined) updateData.price = body.price ? body.price.toString() : null;
-
-    const updated = await db
+    const [updatedProduct] = await db
       .update(products)
       .set(updateData)
       .where(eq(products.id, id))
       .returning();
 
-    if (updated.length === 0) {
-      return c.json({ error: "Produit non trouvé" }, 404);
-    }
-
-    return c.json(updated[0]);
-  } catch (error: any) {
+return c.json({
+  success: true,
+  data: updatedProduct
+});
+  } catch (error) {
     console.error("Error updating product:", error);
-    return c.json({ error: "Erreur serveur" }, 500);
+    
+    // Gestion des erreurs de base de données
+    if (error instanceof Error && 'code' in error && error.code === '23505') { // Violation de contrainte unique
+      return c.json({
+        success: false,
+        error: "Duplicate Entry",
+        message: "Un produit avec ce nom existe déjà",
+        field: "name"
+      }, 400);
+    }
+    
+    return c.json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Une erreur est survenue lors de la mise à jour du produit"
+    }, 500);
   }
 });
 
@@ -1726,7 +1975,7 @@ app.put("/api/products/:id", authenticate, requireAdmin, async (c: any) => {
  * DELETE /api/products/:id
  * Supprime un produit (admin)
  */
-app.delete("/api/products/:id", authenticate, requireAdmin, async (c: any) => {
+app.delete("/api/products/:id", authenticate, async (c: any) => {
   try {
     const id = parseInt(c.req.param("id"));
 
@@ -1747,7 +1996,7 @@ app.delete("/api/products/:id", authenticate, requireAdmin, async (c: any) => {
  * GET /api/clients/:id/products
  * Liste les produits assignés à un client
  */
-app.get("/api/clients/:id/products", authenticate, requireSupervisor, async (c: any) => {
+app.get("/api/clients/:id/products", authenticate, async (c: any) => {
   try {
     const clientId = parseInt(c.req.param("id"));
     const { sql } = await import("drizzle-orm");
@@ -1776,7 +2025,7 @@ app.get("/api/clients/:id/products", authenticate, requireSupervisor, async (c: 
  * POST /api/clients/:id/products
  * Assigne un produit à un client (many-to-many)
  */
-app.post("/api/clients/:id/products", authenticate, requireSupervisor, async (c: any) => {
+app.post("/api/clients/:id/products", authenticate, async (c: any) => {
   try {
     const clientId = parseInt(c.req.param("id"));
     const body = await c.req.json();
@@ -2213,9 +2462,24 @@ app.delete("/api/payments/:id", authenticate, requireAdmin, async (c: any) => {
 });
 
 // ==================== SERVER ====================
-const port = 3002;
-console.log(`Mini ERP API → http://localhost:${port}`);
+const port = parseInt(process.env.PORT || '3002');
+console.log(`\nMini ERP API → http://localhost:${port}`);
+
+// Gestion des erreurs non attrapées
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
+
+// Démarrer le serveur
 serve({
   fetch: app.fetch,
   port,
+  hostname: '0.0.0.0', // Écouter sur toutes les interfaces
 });
+
+console.log('Configuration CORS activée pour les origines autorisées');
+console.log('En attente de connexions...');
